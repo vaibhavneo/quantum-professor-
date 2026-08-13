@@ -527,7 +527,24 @@ const SYM={"\\lambda":"λ","\\psi":"ψ","\\Psi":"Ψ","\\phi":"φ","\\Phi":"Φ","
 "\\nabla":"∇","\\partial":"∂","\\times":"×","\\cdot":"·","\\pm":"±","\\mp":"∓",
 "\\geq":"≥","\\ge":"≥","\\leq":"≤","\\le":"≤","\\neq":"≠","\\approx":"≈","\\equiv":"≡","\\propto":"∝",
 "\\rangle":"⟩","\\langle":"⟨","\\sum":"Σ","\\int":"∫","\\infty":"∞",
-"\\rightarrow":"→","\\to":"→","\\dagger":"†","\\otimes":"⊗","\\in":"∈","\\hat":"","\\left":"","\\right":""};
+"\\rightarrow":"→","\\to":"→","\\dagger":"†","\\otimes":"⊗","\\in":"∈","\\hat":"","\\left":"","\\right":"",
+/* Generated LaTeX draws on a far wider vocabulary than the 76 curated
+   equations did — \dots was rendering as the literal word "dots". */
+"\\dots":"…","\\ldots":"…","\\cdots":"⋯","\\vdots":"⋮","\\ddots":"⋱",
+"\\Rightarrow":"⇒","\\Leftrightarrow":"⇔","\\leftrightarrow":"↔","\\leftarrow":"←","\\mapsto":"↦",
+"\\uparrow":"↑","\\downarrow":"↓","\\Uparrow":"⇑","\\Downarrow":"⇓",
+"\\forall":"∀","\\exists":"∃","\\nexists":"∄","\\neg":"¬","\\emptyset":"∅","\\varnothing":"∅",
+"\\subset":"⊂","\\subseteq":"⊆","\\supset":"⊃","\\cup":"∪","\\cap":"∩","\\setminus":"∖",
+"\\perp":"⊥","\\parallel":"∥","\\angle":"∠","\\prod":"∏","\\coprod":"∐","\\oint":"∮",
+"\\iint":"∬","\\iiint":"∭","\\sim":"∼","\\simeq":"≃","\\cong":"≅","\\ll":"≪","\\gg":"≫",
+"\\oplus":"⊕","\\ominus":"⊖","\\odot":"⊙","\\circ":"∘","\\bullet":"∙","\\star":"⋆",
+"\\wedge":"∧","\\vee":"∨","\\land":"∧","\\lor":"∨","\\therefore":"∴","\\because":"∵",
+"\\varphi":"φ","\\varepsilon":"ε","\\vartheta":"ϑ","\\varrho":"ϱ","\\varsigma":"ς",
+"\\ell":"ℓ","\\Re":"ℜ","\\Im":"ℑ","\\aleph":"ℵ","\\prime":"′","\\degree":"°",
+"\\Gamma":"Γ","\\Lambda":"Λ","\\Sigma":"Σ","\\Pi":"Π","\\Theta":"Θ","\\Xi":"Ξ","\\Upsilon":"Υ",
+"\\eta":"η","\\zeta":"ζ","\\iota":"ι","\\kappa":"κ","\\chi":"χ","\\xi":"ξ","\\upsilon":"υ",
+"\\langle":"⟨","\\rangle":"⟩","\\lVert":"‖","\\rVert":"‖","\\vert":"|","\\Vert":"‖",
+"\\infty ":"∞","\\pm ":"±","\\mathbb":"","\\displaystyle":"","\\limits":"","\\nolimits":""};
 function matchBrace(s,i){ /* i points at '{'; returns index of its '}' */
   let d=0;
   for(let j=i;j<s.length;j++){
