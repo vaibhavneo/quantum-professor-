@@ -127,7 +127,7 @@ class QuantumHandler(BaseHTTPRequestHandler):
 
     def _serve_static(self, path: str) -> None:
         if path == "/":
-            target = WEB_ROOT / "index.html"
+            target = WEB_ROOT / "standalone.html"
         else:
             target = (WEB_ROOT / path.lstrip("/")).resolve()
 
