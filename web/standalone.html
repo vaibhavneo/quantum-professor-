@@ -255,6 +255,7 @@ details.trace-fold[open]>summary::before{content:"▾ "}
 .ev-why{font-size:.71rem;color:var(--magenta);font-family:var(--mono)}
 .strength{font-size:.72rem;font-family:var(--mono)}
 .strength-usable{color:var(--accent)} .strength-weak{color:var(--amber)} .strength-none{color:var(--magenta)}
+.adapt-bar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;font-size:.78rem;color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:7px 11px;margin-bottom:11px}
 .prose-body{font-family:var(--serif);font-size:1.0rem;line-height:1.7}
 .prose-body p{margin:0 0 .8em}
 .prose-body .eqblock{margin:.8em 0;text-align:center;white-space:normal;padding:14px 13px}
@@ -1200,6 +1201,15 @@ function renderEvidence(ev){
   return h;
 }
 
+function renderAdapt(d){
+  if(!d.familiarity) return "";
+  const m=d.mastery||{};
+  return '<div class="adapt-bar">'+
+    '<span class="prov prov-generated">adapted</span>'+
+    "<span>mode <b>"+esc(d.mode||"explain")+"</b> · depth <b>"+esc(d.depth||"intermediate")+
+    "</b> · this topic is <b>"+esc(d.familiarity)+"</b>"+
+    (m.visits?" (visit "+m.visits+")":"")+"</span></div>";
+}
 function renderAudit(d){
   const a=d.audit||{}, ho=d.honesty||{};
   const bad=(a.hallucinated_tags||[]).length;
@@ -1264,7 +1274,7 @@ function askDoAsk(){
 
   let es, settled=false;
   try{ es=new EventSource(url); }catch(err){ localFallback("EventSource unavailable"); return; }
-  ["match","retrieve","compute","compose"].forEach(st=>es.addEventListener(st,e=>{
+  ["match","retrieve","compute","adapt","compose"].forEach(st=>es.addEventListener(st,e=>{
     let d={}; try{ d=JSON.parse(e.data); }catch(_){}
     put(st,d.msg||"");
   }));
@@ -1275,6 +1285,7 @@ function askDoAsk(){
     bubble.innerHTML=
       renderComputed(d.computed)+
       renderProse(d.prose,d.evidence)+
+      renderAdapt(d)+
       '<details class="trace-fold" open><summary>Evidence &amp; provenance</summary>'+
         renderEvidence(d.evidence)+"</details>"+
       '<details class="trace-fold"><summary>Pipeline trace &amp; citation audit</summary>'+

@@ -289,6 +289,44 @@ def compute_for(question: str, topic_id: str | None) -> dict | None:
 
 # ── composition ───────────────────────────────────────────────────────────
 
+# ── pedagogy ──────────────────────────────────────────────────────────────
+# Passing the bare words "socratic" / "advanced" into the prompt barely moves
+# the output. Each setting gets an explicit behavioural instruction, and depth
+# also scales the token budget, so the controls are functional rather than
+# decorative.
+MODE_DIRECTIVE = {
+    "explain": "Give a ground-up explanation. Build the intuition first, then "
+               "formalise it. Lead with the physical picture, not the algebra.",
+    "socratic": "Teach by guided questioning. Ask 3-5 short questions in "
+                "sequence that lead the learner to the answer themselves, giving "
+                "just enough after each to make the next one answerable. Do not "
+                "state the conclusion up front.",
+    "exercise": "Practice-first. Pose one concrete worked problem on this topic, "
+                "walk through the solution step by step showing the reasoning at "
+                "each line, then state the general principle it illustrates.",
+    "compare": "Structure the whole answer as a comparison. Identify the two (or "
+               "more) things being contrasted, treat them side by side across the "
+               "same dimensions, and finish with when each one applies.",
+}
+DEPTH_DIRECTIVE = {
+    "intro": "Assume no physics background beyond school algebra. Avoid "
+             "operators and Dirac notation; use analogies and plain language.",
+    "intermediate": "Assume undergraduate mechanics and calculus, and comfort "
+                    "with basic wavefunctions. Standard notation is fine.",
+    "advanced": "Assume graduate-level fluency. Use Dirac notation and operator "
+                "algebra freely, and give the full derivation rather than "
+                "sketching it.",
+}
+# deepseek-v4-pro reasons before answering and those tokens count against
+# max_tokens. A measured socratic/advanced call spent 7,047 of 8,573 completion
+# tokens on reasoning alone — so a 9,000 cap left ~450 tokens of headroom and a
+# slightly longer chain came back with empty content. Budgets are sized for the
+# reasoning, not the prose.
+DEPTH_TOKENS = {"intro": 8000, "intermediate": 12000, "advanced": 18000}
+# That same call took 115.1s; 120s was cutting it far too fine.
+LLM_TIMEOUT_S = 300.0
+
+
 _SYSTEM = """You are a physics tutor in the style of Feynman: build intuition \
 first, then formalise. You are one stage in a pipeline that shows the user \
 exactly where each part of the answer came from, so you must follow two rules \
@@ -309,7 +347,47 @@ one short sentence saying the library had nothing directly on point.
 Write for the requested depth. Be concrete. Use LaTeX for mathematics."""
 
 
-def _compose(question, topic, evidence, computed, mode, depth, client):
+# ── mastery: what the learner has already worked through ──────────────────
+MASTERY_PATH = Path(__file__).parent / "memory" / "mastery.json"
+
+
+def load_mastery() -> dict:
+    try:
+        return json.loads(MASTERY_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"topics": {}}
+
+
+def record_visit(topic_id: str | None, mode: str, depth: str) -> dict:
+    """Bump the counter for a topic and return its state.
+
+    Deliberately a plain JSON file rather than a database: it is inspectable,
+    and this is study history, not something worth a schema.
+    """
+    if not topic_id:
+        return {}
+    store = load_mastery()
+    t = store.setdefault("topics", {}).setdefault(
+        topic_id, {"visits": 0, "modes": [], "last_depth": None})
+    t["visits"] += 1
+    t["last_depth"] = depth
+    if mode not in t["modes"]:
+        t["modes"].append(mode)
+    try:
+        MASTERY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MASTERY_PATH.write_text(json.dumps(store, indent=1))
+    except OSError:
+        pass                      # history is a nicety; never fail the answer
+    return dict(t)
+
+
+def _familiarity(state: dict) -> str:
+    v = (state or {}).get("visits", 0)
+    return "new" if v <= 1 else "revisited" if v <= 3 else "familiar"
+
+
+def _compose(question, topic, evidence, computed, mode, depth, client, mastery=None,
+             token_override=None):
     src_block = "\n\n".join(
         f"[{c['tag']}] (from {c['source']}, raw relevance {c['raw_score']})\n{c['text'][:1100]}"
         for c in evidence["kept"]
@@ -333,12 +411,26 @@ def _compose(question, topic, evidence, computed, mode, depth, client):
                 f"{ {k: v for k, v in computed['result'].items() if k != 'formula'} }. "
                 f"Refer to it in words; do NOT restate the digits.")
 
-    user = (f"QUESTION: {question}\n\nMODE: {mode}    DEPTH: {depth}\n\n"
+    fam = _familiarity(mastery)
+    hist = {
+        "new": "This is the learner's first time on this topic.",
+        "revisited": "The learner has been here once or twice before — don't "
+                     "re-lay the basics at length; go a level deeper than an "
+                     "introduction would.",
+        "familiar": "The learner has worked this topic several times. Skip the "
+                    "introductory framing entirely and go straight to the "
+                    "subtleties, edge cases and connections.",
+    }[fam]
+
+    user = (f"QUESTION: {question}\n\n"
+            f"HOW TO ANSWER: {MODE_DIRECTIVE.get(mode, MODE_DIRECTIVE['explain'])}\n"
+            f"WHO YOU ARE ANSWERING: {DEPTH_DIRECTIVE.get(depth, DEPTH_DIRECTIVE['intermediate'])}\n"
+            f"LEARNER HISTORY: {hist}\n\n"
             f"CURRICULUM MATERIAL:\n{cur}\n\nSOURCES FROM THE USER'S LIBRARY:\n{src_block}\n\n"
             f"COMPUTED:\n{comp}\n\nWrite the explanation now.")
 
     resp = client.chat.completions.create(
-        model=MODEL, max_tokens=8000,
+        model=MODEL, max_tokens=token_override or DEPTH_TOKENS.get(depth, 12000),
         messages=[{"role": "system", "content": _SYSTEM},
                   {"role": "user", "content": user}],
     )
@@ -405,16 +497,29 @@ def answer_stream(question: str, mode: str = "explain",
         yield "error", {"message": "pip3 install openai"}
         return
 
+    mastery = record_visit(topic.id if topic else None, mode, depth)
+    fam = _familiarity(mastery)
+    yield "adapt", {"msg": (f"{mode} · {depth} · this topic is {fam}"
+                            + (f" (visit {mastery.get('visits')})" if mastery else "")),
+                    "mode": mode, "depth": depth,
+                    "familiarity": fam, "mastery": mastery}
+
     yield "compose", {"msg": "Composing the explanation…"}
     client = OpenAI(api_key=key, base_url="https://api.deepseek.com",
-                    timeout=120.0, max_retries=1)
+                    timeout=LLM_TIMEOUT_S, max_retries=1)
     try:
-        prose = _compose(question, topic, evidence, computed, mode, depth, client)
+        prose = _compose(question, topic, evidence, computed, mode, depth, client, mastery)
+        if not prose.strip():
+            # An empty body means the reasoning chain consumed the whole budget.
+            # One retry with more room is cheaper than failing the answer.
+            yield "compose", {"msg": "Empty completion — retrying with a larger budget…"}
+            prose = _compose(question, topic, evidence, computed, mode, depth, client,
+                             mastery, token_override=DEPTH_TOKENS.get(depth, 12000) * 2)
     except Exception as exc:
         yield "error", {"message": f"{type(exc).__name__}: {exc}"}
         return
     if not prose.strip():
-        yield "error", {"message": "model returned an empty completion"}
+        yield "error", {"message": "model returned an empty completion twice"}
         return
 
     audit = _audit(prose, evidence)
@@ -427,6 +532,8 @@ def answer_stream(question: str, mode: str = "explain",
         "evidence": evidence,
         "computed": computed,
         "audit": audit,
+        "mastery": mastery,
+        "familiarity": fam,
         "honesty": {
             "numbers_are_computed_not_generated": bool(computed and computed.get("ran")),
             "grounded_in_library": bool(evidence.get("kept")),
