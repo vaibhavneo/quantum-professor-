@@ -262,7 +262,17 @@ details.trace-fold[open]>summary::before{content:"▾ "}
    below or the surrounding punctuation rides up against them. */
 .eqblock .tx{font-size:1.14em;line-height:2.1}
 .eqblock .tx-frac{vertical-align:-.62em}
+.katex{font-size:1.06em}
+.eqblock .katex-display{margin:0}
 </style>
+
+<!-- Vendored KaTeX (woff2 only, ~590K). Loaded synchronously and before the
+     app script so the very first render already typesets properly. Served
+     locally: no CDN, works offline. If it is missing — e.g. this file opened
+     directly rather than through the server — texHTML silently falls back to
+     the built-in renderer, so the page degrades instead of breaking. -->
+<link rel="stylesheet" href="/vendor/katex/katex.min.css">
+<script src="/vendor/katex/katex.min.js"></script>
 
 <div class="shell">
   <aside class="rail">
@@ -641,11 +651,26 @@ function texR(s){
   }
   return out;
 }
-/* Returns HTML — call sites must NOT wrap this in esc(). */
-function texHTML(s){ return '<span class="tx">'+texR(s)+'</span>'; }
+/* Returns HTML — call sites must NOT wrap this in esc().
+   Prefers KaTeX for real typesetting and falls back to the parser above when
+   it isn't loaded (bare file, no server) or chokes on an expression. The
+   fallback is why the renderer above is kept rather than deleted. */
+function texHTML(s, display){
+  if(window.katex){
+    try{
+      return katex.renderToString(String(s), {
+        displayMode: !!display, throwOnError: false, strict: false,
+        output: "html", trust: false, maxSize: 20, maxExpand: 600
+      });
+    }catch(e){ /* fall through to the built-in renderer */ }
+  }
+  return '<span class="tx">'+texR(s)+'</span>';
+}
 /* Plain-text form, for speech and for anything that needs a bare string. */
 function texPlain(s){
-  const d=document.createElement("div"); d.innerHTML=texHTML(s);
+  /* Always the built-in renderer, never KaTeX: this feeds speech synthesis,
+     and KaTeX's markup carries layout spans whose textContent reads badly. */
+  const d=document.createElement("div"); d.innerHTML='<span class="tx">'+texR(s)+'</span>';
   return (d.textContent||"").replace(/\s{2,}/g," ").trim();
 }
 const esc=s=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -713,7 +738,7 @@ function openTopic(id,from){
   h+='<p class="intuition">'+esc(t.intuition)+'</p>';
   if((t.key_equations||[]).length){
     h+='<div class="sec"><div class="sec-h">Key equations</div>'+
-       t.key_equations.map(q=>'<div class="eq">'+texHTML(q)+'</div>').join("")+'</div>';
+       t.key_equations.map(q=>'<div class="eq">'+texHTML(q,true)+'</div>').join("")+'</div>';
   }
   if((t.key_concepts||[]).length){
     h+='<div class="sec"><div class="sec-h">Key concepts</div><div class="taglist">'+
@@ -801,7 +826,7 @@ function problemHTML(p,compact){
       (p.answer_latex?'<button class="linkbtn" data-rev="ans">Show answer</button>':"")+
     '</div>'+
     (p.hint?'<div class="disclosed" data-slot="hint" hidden>'+esc(p.hint)+'</div>':"")+
-    (p.answer_latex?'<div class="disclosed ans" data-slot="ans" hidden>'+texHTML(p.answer_latex)+'</div>':"")+
+    (p.answer_latex?'<div class="disclosed ans" data-slot="ans" hidden>'+texHTML(p.answer_latex,true)+'</div>':"")+
   '</div>';
 }
 function wireReveals(root){
@@ -869,7 +894,7 @@ document.getElementById("solve-go").addEventListener("click",()=>{
   }
   try{
     const rows=s.run(vals);
-    out.innerHTML='<div class="out-formula">'+texHTML(s.formula)+'</div>'+
+    out.innerHTML='<div class="out-formula">'+texHTML(s.formula,true)+'</div>'+
       rows.map(([k,v])=>'<div class="out-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v)+'</span></div>').join("");
   }catch(err){
     out.innerHTML='<div class="err">'+esc(err.message)+'</div>';
@@ -997,7 +1022,7 @@ function askAnswer(question){
   }
   if((top.key_equations||[]).length){
     h+='<div class="sec"><div class="sec-h">Key equations</div>'+
-       top.key_equations.map(q=>'<div class="eq">'+texHTML(q)+'</div>').join("")+'</div>';
+       top.key_equations.map(q=>'<div class="eq">'+texHTML(q,true)+'</div>').join("")+'</div>';
   }
 
   const solverId=TOPIC_TO_SOLVER[top.id];
@@ -1009,7 +1034,7 @@ function askAnswer(question){
       try{
         const rows=SOLVERS[solverId].run(params);
         h+='<div class="sec"><div class="sec-h">Computed from your question</div>'+
-           '<div class="static-card"><div class="out-formula">'+texHTML(SOLVERS[solverId].formula)+'</div>'+
+           '<div class="static-card"><div class="out-formula">'+texHTML(SOLVERS[solverId].formula,true)+'</div>'+
            rows.map(([k,v])=>'<div class="out-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v)+'</span></div>').join("")+
            '</div></div>';
         computed=true;
@@ -1133,7 +1158,7 @@ function renderProse(md, evidence){
     if(/^ B\d+ $/.test(p)) return p;      // bare display equation
     return "<p>"+p.replace(/\n/g," ")+"</p>";
   }).join("");
-  s=s.replace(/ B(\d+) /g,(m,i)=>'<div class="eq eqblock">'+texHTML(blocks[+i])+"</div>");
+  s=s.replace(/ B(\d+) /g,(m,i)=>'<div class="eq eqblock">'+texHTML(blocks[+i],true)+"</div>");
   s=s.replace(/ I(\d+) /g,(m,i)=>texHTML(inl[+i]));
   return '<div class="prose-body">'+s+"</div>";
 }
@@ -1145,7 +1170,7 @@ function renderComputed(c){
   return '<div class="computed-card"><div class="ch">'+
     '<span class="prov prov-computed">computed</span>'+
     "<span>solver <code>"+esc(c.solver)+"</code> — arithmetic, not model output</span></div>"+
-    (f?'<div class="out-formula">'+texHTML(f)+"</div>":"")+
+    (f?'<div class="out-formula">'+texHTML(f,true)+"</div>":"")+
     rows.map(([k,v])=>'<div class="out-row"><span class="k">'+esc(k)+
       '</span><span class="v">'+esc(String(v))+"</span></div>").join("")+
     '<div class="computed-in">inputs '+esc(JSON.stringify(c.inputs||{}))+"</div></div>";
