@@ -65,6 +65,34 @@ def _api_key() -> str:
 
 # ── retrieval ─────────────────────────────────────────────────────────────
 
+_DOT_LEADER = re.compile(r"\.{4,}")
+_SPACED_OUT = re.compile(r"(?:\b[A-Za-z]\s){6,}")   # "T h e P h o t o e l e c t r i c"
+
+
+def looks_like_frontmatter(text: str) -> str | None:
+    """Detect contents pages and indexes, which survive good chunking.
+
+    Better chunking fixed chunk *size*, not the fact that a physics PDF opens
+    with a table of contents. Such a page is dense in the query's own
+    vocabulary and so scores very high — an observed Pauli query ranked a
+    contents page first at raw 0.81, above a real Slater-determinant passage.
+    Returns a reason string when the chunk should be dropped, else None.
+    """
+    if not text:
+        return "empty"
+    if len(_DOT_LEADER.findall(text)) >= 3:
+        return "contents page (dot leaders)"
+    if len(_SPACED_OUT.findall(text)) >= 2:
+        return "broken PDF letter-spacing (front matter)"
+    digits = sum(c.isdigit() for c in text)
+    if digits / max(len(text), 1) > 0.14:
+        return "index or contents page (digit-dense)"
+    letters = sum(c.isalpha() for c in text)
+    if letters / max(len(text), 1) < 0.55:
+        return "not prose (symbol/number dense)"
+    return None
+
+
 def retrieve_evidence(question: str, top_k: int = 6) -> dict:
     """Pull grounding chunks from the user's physics library.
 
@@ -105,6 +133,9 @@ def retrieve_evidence(question: str, top_k: int = 6) -> dict:
             rejected.append(item)
         elif len(item["text"]) < MIN_CHUNK_CHARS:
             item["why"] = "too short to ground on (heading fragment)"
+            rejected.append(item)
+        elif (reason := looks_like_frontmatter(item["text"])):
+            item["why"] = reason
             rejected.append(item)
         else:
             item["tag"] = f"S{len(kept) + 1}"
