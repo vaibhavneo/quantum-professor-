@@ -47,6 +47,8 @@ class QuantumHandler(BaseHTTPRequestHandler):
             self._handle_path(query)
         elif path == "/api/problems":
             self._handle_problems(query)
+        elif path == "/api/ask":
+            self._handle_ask(query)
         else:
             self._serve_static(path)
 
@@ -124,6 +126,45 @@ class QuantumHandler(BaseHTTPRequestHandler):
         topic_id = params.get("topic", [""])[0].strip()
         problems = problems_for_topic(topic_id) if topic_id else []
         self._send_json({"problems": [problem_to_dict(p) for p in problems]})
+
+    def _handle_ask(self, query: str) -> None:
+        """Grounded answer, streamed as Server-Sent Events.
+
+        Streaming is not a performance trick here — each stage (match,
+        retrieve, compute, compose) is shown to the user as it happens, so the
+        provenance of the final answer is watchable rather than asserted.
+        """
+        params = parse_qs(query)
+        question = params.get("q", [""])[0].strip()
+        mode = params.get("mode", ["explain"])[0]
+        depth = params.get("depth", ["intermediate"])[0]
+        if not question:
+            self._send_json({"error": "q parameter required"}, status=400)
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self._send_cors_headers()
+        self.end_headers()
+
+        def emit(event: str, data: dict) -> None:
+            self.wfile.write(f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+                             .encode("utf-8"))
+            self.wfile.flush()
+
+        try:
+            from .tutor import answer_stream
+            for stage, payload in answer_stream(question, mode=mode, depth=depth):
+                emit(stage, payload)
+        except (BrokenPipeError, ConnectionResetError):
+            return                      # client navigated away mid-answer
+        except Exception as exc:        # never leave the stream hanging open
+            try:
+                emit("error", {"message": f"{type(exc).__name__}: {exc}"})
+            except Exception:
+                pass
 
     def _serve_static(self, path: str) -> None:
         if path == "/":

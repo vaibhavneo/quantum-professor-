@@ -212,6 +212,56 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .icon-btn:disabled{opacity:.4;cursor:not-allowed}
 .ask-speak{position:absolute;top:8px;right:8px;padding:3px 7px;font-size:.85rem}
 .ask-voice-note{font-size:.72rem;color:var(--muted);margin:6px 0 0}
+
+/* ── live pipeline trace: the provenance is the product, so the stages are
+      shown as they happen rather than hidden behind a spinner ── */
+.trace{font-family:var(--mono);font-size:.76rem;border-left:2px solid var(--border);padding-left:11px;margin:2px 0 4px}
+.trace-row{display:flex;gap:8px;align-items:baseline;padding:2px 0;color:var(--muted)}
+.trace-row .st{color:var(--accent);min-width:74px;font-weight:600}
+.trace-row.run .st::after{content:"…"}
+.trace-row.err .st{color:var(--magenta)}
+details.trace-fold{margin-top:12px;border-top:1px solid var(--border);padding-top:8px}
+details.trace-fold>summary{cursor:pointer;font-size:.74rem;color:var(--muted);list-style:none}
+details.trace-fold>summary::-webkit-details-marker{display:none}
+details.trace-fold>summary::before{content:"▸ ";color:var(--accent)}
+details.trace-fold[open]>summary::before{content:"▾ "}
+
+/* ── provenance: computed vs generated vs retrieved ── */
+.prov{display:inline-block;font-family:var(--mono);font-size:.63rem;font-weight:700;letter-spacing:.05em;
+  text-transform:uppercase;padding:1px 6px;border-radius:4px;vertical-align:.12em}
+.prov-computed{background:var(--accent-soft);color:var(--accent)}
+.prov-retrieved{background:var(--violet-soft);color:var(--violet)}
+.prov-generated{background:var(--amber-soft);color:var(--amber)}
+.computed-card{border:1px solid var(--accent);border-radius:var(--r);padding:11px 14px;margin:12px 0;
+  background:var(--accent-soft)}
+.computed-card .ch{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:.78rem;color:var(--muted)}
+.computed-in{font-family:var(--mono);font-size:.74rem;color:var(--muted);margin-top:6px}
+
+/* citation chips inside prose */
+.cite{display:inline-block;font-family:var(--mono);font-size:.68rem;font-weight:700;padding:0 5px;
+  border-radius:4px;background:var(--violet-soft);color:var(--violet);cursor:pointer;vertical-align:.1em}
+.cite:hover{outline:1px solid var(--violet)}
+.cite.miss{background:var(--magenta-soft);color:var(--magenta)}
+
+/* evidence panel */
+.ev{margin-top:6px}
+.ev-item{border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:6px;background:var(--surface)}
+.ev-item.rej{opacity:.55;border-style:dashed}
+.ev-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:.75rem;margin-bottom:5px}
+.ev-src{font-weight:600;color:var(--text)}
+.ev-score{font-family:var(--mono);font-size:.71rem;color:var(--muted)}
+.ev-text{font-size:.8rem;color:var(--muted);line-height:1.5;max-height:5.2em;overflow:hidden}
+.ev-item.open .ev-text{max-height:none}
+.ev-why{font-size:.71rem;color:var(--magenta);font-family:var(--mono)}
+.strength{font-size:.72rem;font-family:var(--mono)}
+.strength-usable{color:var(--accent)} .strength-weak{color:var(--amber)} .strength-none{color:var(--magenta)}
+.prose-body{font-family:var(--serif);font-size:1.0rem;line-height:1.7}
+.prose-body p{margin:0 0 .8em}
+.prose-body .eqblock{margin:.8em 0;text-align:center;white-space:normal;padding:14px 13px}
+/* Display math sits on a taller line, so stacked fractions need room above and
+   below or the surrounding punctuation rides up against them. */
+.eqblock .tx{font-size:1.14em;line-height:2.1}
+.eqblock .tx-frac{vertical-align:-.62em}
 </style>
 
 <div class="shell">
@@ -246,6 +296,17 @@ select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
       <div class="ask-input-row">
         <textarea id="ask-q" rows="2" placeholder="Ask a question about quantum mechanics…"></textarea>
         <div class="ask-buttons">
+          <select id="ask-mode" aria-label="Teaching mode" title="How the professor should answer">
+            <option value="explain">Explain</option>
+            <option value="socratic">Socratic</option>
+            <option value="exercise">Exercise</option>
+            <option value="compare">Compare</option>
+          </select>
+          <select id="ask-depth" aria-label="Depth" title="Assumed background">
+            <option value="intro">Intro</option>
+            <option value="intermediate" selected>Intermediate</option>
+            <option value="advanced">Advanced</option>
+          </select>
           <button class="icon-btn" id="ask-mic" type="button" title="Ask by voice" aria-pressed="false">🎤</button>
           <button class="go" id="ask-go" type="button">Ask</button>
         </div>
@@ -1031,12 +1092,164 @@ document.getElementById("ask-log").addEventListener("click",e=>{
   }
 });
 
+/* ── rendering the grounded answer ────────────────────────────────────────
+   Three provenances are kept visually distinct on purpose: a number from the
+   solver, a passage from the user's library, and prose from the model are not
+   the same kind of claim and shouldn't look alike. */
+
+function renderProse(md, evidence){
+  const kept=new Set(((evidence&&evidence.kept)||[]).map(c=>c.tag));
+  let s=String(md||"");
+  const blocks=[], inl=[];
+  s=s.replace(/\\\[([\s\S]*?)\\\]|\$\$([\s\S]*?)\$\$/g,(m,a,b)=>{
+    blocks.push(a!==undefined?a:b); return " B"+(blocks.length-1)+" "; });
+  s=s.replace(/\\\(([\s\S]*?)\\\)|\$([^$\n]+)\$/g,(m,a,b)=>{
+    inl.push(a!==undefined?a:b); return " I"+(inl.length-1)+" "; });
+  s=esc(s);
+  s=s.replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
+  s=s.replace(/^#{1,4}\s*(.+)$/gm,'<div class="sec-h">$1</div>');
+  s=s.replace(/\[(S\d+)\]/g,(m,t)=>
+    '<span class="cite'+(kept.has(t)?"":" miss")+'" data-cite="'+t+'" title="'+
+    (kept.has(t)?"jump to source":"model cited a source that was not supplied")+'">'+t+"</span>");
+  s=s.split(/\n{2,}/).map(p=>{
+    p=p.trim(); if(!p) return "";
+    if(/^ B\d+ $/.test(p)) return p;      // bare display equation
+    return "<p>"+p.replace(/\n/g," ")+"</p>";
+  }).join("");
+  s=s.replace(/ B(\d+) /g,(m,i)=>'<div class="eq eqblock">'+texHTML(blocks[+i])+"</div>");
+  s=s.replace(/ I(\d+) /g,(m,i)=>texHTML(inl[+i]));
+  return '<div class="prose-body">'+s+"</div>";
+}
+
+function renderComputed(c){
+  if(!c||!c.ran) return "";
+  const r=c.result||{}, f=r.formula||"";
+  const rows=Object.entries(r).filter(([k])=>k!=="formula"&&k!=="topic");
+  return '<div class="computed-card"><div class="ch">'+
+    '<span class="prov prov-computed">computed</span>'+
+    "<span>solver <code>"+esc(c.solver)+"</code> — arithmetic, not model output</span></div>"+
+    (f?'<div class="out-formula">'+texHTML(f)+"</div>":"")+
+    rows.map(([k,v])=>'<div class="out-row"><span class="k">'+esc(k)+
+      '</span><span class="v">'+esc(String(v))+"</span></div>").join("")+
+    '<div class="computed-in">inputs '+esc(JSON.stringify(c.inputs||{}))+"</div></div>";
+}
+
+function renderEvidence(ev){
+  if(!ev) return "";
+  if(!ev.available) return '<div class="ev-why">Library unavailable — '+esc(ev.reason||"")+"</div>";
+  const k=ev.kept||[], rj=ev.rejected||[];
+  let h='<div class="ev"><div class="ev-head">'+
+    '<span class="strength strength-'+esc(ev.evidence_strength||"none")+'">evidence: '+
+      esc(ev.evidence_strength||"none")+"</span>"+
+    '<span class="ev-score">scope '+esc((ev.scope||[]).join(", "))+" · "+k.length+
+      " used · "+rj.length+" rejected</span></div>";
+  h+=k.map(c=>'<div class="ev-item" id="cite-'+esc(c.tag)+'"><div class="ev-head">'+
+      '<span class="cite">'+esc(c.tag)+'</span><span class="prov prov-retrieved">retrieved</span>'+
+      '<span class="ev-src">'+esc(c.source)+"</span>"+
+      '<span class="ev-score">raw '+c.raw_score+" · normalised "+c.normalised+"</span></div>"+
+      '<div class="ev-text">'+esc(c.text)+"</div></div>").join("");
+  if(rj.length) h+='<details class="trace-fold"><summary>'+rj.length+
+    " chunk(s) retrieved but rejected</summary>"+
+    rj.map(c=>'<div class="ev-item rej"><div class="ev-head"><span class="ev-src">'+
+      esc(c.source)+'</span><span class="ev-score">raw '+c.raw_score+"</span>"+
+      '<span class="ev-why">'+esc(c.why||"")+"</span></div>"+
+      '<div class="ev-text">'+esc((c.text||"").slice(0,200))+"</div></div>").join("")+"</details>";
+  h+='<div class="ev-score" style="margin-top:7px">'+esc(ev.scoring_note||"")+"</div></div>";
+  return h;
+}
+
+function renderAudit(d){
+  const a=d.audit||{}, ho=d.honesty||{};
+  const bad=(a.hallucinated_tags||[]).length;
+  return '<div class="ev-score">sentences '+(a.sentences||0)+" · cited "+
+    ((a.cited||[]).join(", ")||"none")+" · uncited sentences "+(a.uncited_sentences||0)+
+    (bad?' · <span style="color:var(--magenta)">cited '+bad+" source(s) that were never supplied</span>":"")+
+    "</div><div class=\"ev-score\" style=\"margin-top:5px\">"+esc(ho.note||"")+"</div>";
+}
+
+function wireAnswerBubble(aDiv, d){
+  const sp=aDiv.querySelector(".ask-speak");
+  if(sp){
+    if(!("speechSynthesis" in window)){ sp.disabled=true; }
+    else sp.addEventListener("click",()=>askSpeak(String(d.prose||"").replace(/\[S\d+\]/g,"")));
+  }
+  aDiv.querySelectorAll("[data-cite]").forEach(c=>c.addEventListener("click",()=>{
+    const t=document.getElementById("cite-"+c.dataset.cite);
+    if(t){ t.classList.add("open"); t.scrollIntoView({block:"center",behavior:"smooth"});
+           t.style.borderColor="var(--violet)"; setTimeout(()=>t.style.borderColor="",1600); }
+  }));
+}
+
+/* Streams /api/ask and shows each stage as it lands. Falls back to the local
+   curriculum-only answer if the backend isn't reachable, so the page still
+   works as a standalone file. */
 function askDoAsk(){
   const ta=document.getElementById("ask-q");
   const q=ta.value.trim();
   if(!q) return;
-  addAskTurn(q,askAnswer(q));
   ta.value="";
+  const empty=document.getElementById("ask-empty"); if(empty) empty.remove();
+  const log=document.getElementById("ask-log");
+  const qDiv=document.createElement("div"); qDiv.className="ask-msg me";
+  qDiv.innerHTML='<div class="ask-bubble">'+esc(q)+"</div>";
+  const aDiv=document.createElement("div"); aDiv.className="ask-msg bot";
+  aDiv.innerHTML='<div class="ask-bubble"><div class="trace"></div></div>';
+  log.appendChild(qDiv); log.appendChild(aDiv);
+  qDiv.scrollIntoView({block:"start",behavior:"smooth"});
+
+  const bubble=aDiv.querySelector(".ask-bubble"), trace=aDiv.querySelector(".trace");
+  const rows={};
+  const put=(stage,msg,cls)=>{
+    let r=rows[stage];
+    if(!r){ r=document.createElement("div");
+            r.innerHTML='<span class="st">'+esc(stage)+'</span><span class="mg"></span>';
+            trace.appendChild(r); rows[stage]=r; }
+    r.className="trace-row "+(cls===undefined?"run":cls);
+    r.querySelector(".mg").textContent=msg||"";
+  };
+  const localFallback=(why)=>{
+    put("offline",why,"err");
+    const ans=askAnswer(q);
+    bubble.insertAdjacentHTML("beforeend",ans.html+
+      '<button class="icon-btn ask-speak" type="button" title="Read this answer aloud">🔊</button>');
+    wireAnswerBubble(aDiv,{prose:ans.plainText});
+  };
+
+  const sel=id=>{const e=document.getElementById(id); return e?e.value:null;};
+  const url="/api/ask?q="+encodeURIComponent(q)+
+    "&mode="+encodeURIComponent(sel("ask-mode")||"explain")+
+    "&depth="+encodeURIComponent(sel("ask-depth")||"intermediate");
+
+  let es, settled=false;
+  try{ es=new EventSource(url); }catch(err){ localFallback("EventSource unavailable"); return; }
+  ["match","retrieve","compute","compose"].forEach(st=>es.addEventListener(st,e=>{
+    let d={}; try{ d=JSON.parse(e.data); }catch(_){}
+    put(st,d.msg||"");
+  }));
+  es.addEventListener("done",e=>{
+    settled=true; es.close();
+    let d; try{ d=JSON.parse(e.data); }catch(err){ localFallback("bad payload"); return; }
+    Object.keys(rows).forEach(k=>rows[k].className="trace-row");
+    bubble.innerHTML=
+      renderComputed(d.computed)+
+      renderProse(d.prose,d.evidence)+
+      '<details class="trace-fold" open><summary>Evidence &amp; provenance</summary>'+
+        renderEvidence(d.evidence)+"</details>"+
+      '<details class="trace-fold"><summary>Pipeline trace &amp; citation audit</summary>'+
+        '<div class="trace">'+trace.innerHTML+"</div>"+renderAudit(d)+"</details>"+
+      '<button class="icon-btn ask-speak" type="button" title="Read this answer aloud">🔊</button>';
+    wireAnswerBubble(aDiv,d);
+    qDiv.scrollIntoView({block:"start",behavior:"smooth"});
+  });
+  es.addEventListener("error",e=>{
+    let d=null; try{ d=JSON.parse(e.data); }catch(_){}
+    settled=true; es.close();
+    localFallback(d&&d.message ? d.message : "backend unreachable — curriculum only");
+  });
+  /* EventSource retries on a dropped connection; without this a backend that
+     dies mid-answer would silently re-ask forever. */
+  es.onerror=()=>{ if(!settled){ settled=true; es.close();
+    localFallback("backend unreachable — curriculum only"); } };
 }
 document.getElementById("ask-go").addEventListener("click",askDoAsk);
 document.getElementById("ask-q").addEventListener("keydown",e=>{
