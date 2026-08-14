@@ -166,10 +166,13 @@ class QuantumHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         try:
+            # Nine-stage flow: understand → route → gather → evidence →
+            # reasoning → professor → validation. It builds on tutor.py, which
+            # still owns the solvers, curriculum matching and mastery state.
             try:
-                from .tutor import answer_stream
-            except ImportError:
-                from tutor import answer_stream
+                from .qp_pipeline import run as answer_stream
+            except ImportError:                        # flat-script execution
+                from qp_pipeline import run as answer_stream
             for stage, payload in answer_stream(question, mode=mode, depth=depth):
                 emit(stage, payload)
         except (BrokenPipeError, ConnectionResetError):

@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
+.env
+memory/research_notebook.json
 memory/mastery.json
