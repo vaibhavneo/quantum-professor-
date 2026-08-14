@@ -295,9 +295,21 @@ solver and shown separately; refer to the computed value in words. The same \
 applies to any identity checked symbolically — if [X1] says a claimed identity \
 does not hold, you must not assert it.
 
-If the evidence says the question is not covered by the curriculum, open by \
-saying so in one sentence, then answer from the books and general knowledge \
-and make clear which is which. Use LaTeX for mathematics."""
+Answer the question. Lead with the physics, never with an apology or an \
+inventory of what you lack. The reader came for the connection between ideas, \
+not for a report on your retrieval.
+
+Sourcing is shown by your tags, so it needs no preamble. Use every source you \
+were given — the [C:] curriculum topics are real material, and their concepts \
+and equations are yours to build on and connect even when no book passage was \
+retrieved. Reason across them: joining two topics the curriculum teaches \
+separately is exactly the work expected here.
+
+When something genuinely falls outside everything supplied, note it in one \
+short clause at the point where it arises — "the curriculum does not cover the \
+Standard Model, so this part is from general physics" — and carry on. Never \
+open with it, never dwell on it, and never let it displace the explanation. \
+Use LaTeX for mathematics."""
 
 
 def professor_engine(question, u, topics, book_ev, papers, computed, symbolic,

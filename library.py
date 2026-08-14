@@ -556,6 +556,65 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         problem_ids=[],
     ),
 
+    # ── quantum statistical mechanics ──────────────────────────────────────
+    # Another hole found the same way as the relativity one: a question about
+    # the connection between quantum and statistical mechanics matched
+    # Postulates, WKB and Stellar Astrophysics, because the graph contained no
+    # ensemble, partition function, entropy or mixed-state topic at all.
+    Topic(
+        id="density-matrix",
+        title="Density Matrix & Mixed States",
+        level="intermediate",
+        prerequisites=["measurement-postulates", "dirac-notation"],
+        key_concepts=["pure vs mixed states", "density operator", "partial trace",
+                      "reduced density matrix", "purity", "von Neumann entropy",
+                      "classical vs quantum uncertainty"],
+        key_equations=[
+            r"\hat{\rho} = \sum_i p_i |\psi_i\rangle\langle\psi_i|",
+            r"\langle A \rangle = \mathrm{Tr}(\hat{\rho}\hat{A})",
+            r"S = -k_B\,\mathrm{Tr}(\hat{\rho}\ln\hat{\rho})",
+        ],
+        intuition="A ket describes a system you know completely. The moment you are ignorant of which state was prepared — or you trace out a subsystem you cannot see — a single ket cannot represent it and you need the density matrix. This is the object where quantum uncertainty and ordinary statistical ignorance sit side by side, and it is the bridge to statistical mechanics.",
+        book_refs=["sakurai", "ballentine", "cohen-tannoudji"],
+        problem_ids=[],
+    ),
+    Topic(
+        id="quantum-statistical-mechanics",
+        title="Quantum Statistical Mechanics: Ensembles & Partition Functions",
+        level="advanced",
+        prerequisites=["density-matrix", "identical-particles"],
+        key_concepts=["microcanonical, canonical and grand canonical ensembles",
+                      "partition function", "Boltzmann factor", "thermal density matrix",
+                      "free energy", "equipartition", "thermodynamic limit",
+                      "statistical entropy"],
+        key_equations=[
+            r"Z = \mathrm{Tr}\left(e^{-\beta \hat{H}}\right),\quad \beta = \frac{1}{k_B T}",
+            r"\hat{\rho}_{\text{thermal}} = \frac{e^{-\beta\hat{H}}}{Z}",
+            r"F = -k_B T \ln Z",
+        ],
+        intuition="Statistical mechanics is what you do when you know the Hamiltonian but not the microstate. Put the system in contact with a heat bath and the density matrix becomes exp(-βH)/Z — every quantum energy level weighted by its Boltzmann factor. Thermodynamics then falls out of one function, the partition function.",
+        book_refs=["landau-lifshitz-qm", "sakurai"],
+        problem_ids=[],
+    ),
+    Topic(
+        id="quantum-statistics",
+        title="Bose–Einstein & Fermi–Dirac Statistics",
+        level="advanced",
+        prerequisites=["quantum-statistical-mechanics", "identical-particles"],
+        key_concepts=["indistinguishability and counting", "Bose-Einstein distribution",
+                      "Fermi-Dirac distribution", "Fermi energy", "degeneracy pressure",
+                      "Bose-Einstein condensation", "chemical potential",
+                      "classical limit"],
+        key_equations=[
+            r"\bar{n}_{\text{BE}} = \frac{1}{e^{\beta(\epsilon-\mu)} - 1}",
+            r"\bar{n}_{\text{FD}} = \frac{1}{e^{\beta(\epsilon-\mu)} + 1}",
+            r"E_F = \frac{\hbar^2}{2m}\left(3\pi^2 n\right)^{2/3}",
+        ],
+        intuition="Because identical particles cannot be labelled, counting states changes — and that alone splits matter in two. Bosons pile into the same state and can condense; fermions refuse, which is why atoms have structure and why a white dwarf resists gravity. Both distributions collapse to Boltzmann's when occupancy is low.",
+        book_refs=["landau-lifshitz-qm", "griffiths", "sakurai"],
+        problem_ids=[],
+    ),
+
     # ── relativity, particles and cosmology ────────────────────────────────
     # The original 32 topics were a quantum-mechanics curriculum, so a question
     # spanning "quarks to quasars" matched the Dirac equation and nothing else:

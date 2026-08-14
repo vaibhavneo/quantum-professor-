@@ -60,6 +60,14 @@ class QuantumHandler(BaseHTTPRequestHandler):
             self._handle_problems(query)
         elif path == "/api/ask":
             self._handle_ask(query)
+        elif path == "/api/math":
+            self._handle_math(query)
+        elif path == "/api/ode":
+            self._handle_ode(query)
+        elif path == "/api/schrodinger":
+            self._handle_schrodinger(query)
+        elif path == "/api/mathlab":
+            self._handle_mathlab_info(query)
         else:
             self._serve_static(path)
 
@@ -182,6 +190,76 @@ class QuantumHandler(BaseHTTPRequestHandler):
                 emit("error", {"message": f"{type(exc).__name__}: {exc}"})
             except Exception:
                 pass
+
+    # ── Math Lab: free-form mathematical input ───────────────────────────
+    # Everything below is computed by sympy or numpy. The model never touches
+    # these numbers; it may only talk about them.
+
+    def _mathlab(self):
+        try:
+            from . import mathlab
+        except ImportError:
+            import mathlab
+        return mathlab
+
+    def _handle_math(self, query: str) -> None:
+        p = parse_qs(query)
+        expr = p.get("expr", [""])[0].strip()
+        if not expr:
+            self._send_json({"error": "expr parameter required",
+                             "operations": self._mathlab().OPERATIONS}, status=400)
+            return
+        subs = {}
+        for pair in p.get("subs", [""])[0].split(","):
+            if "=" in pair:
+                k, _, v = pair.partition("=")
+                subs[k.strip()] = v.strip()
+        self._send_json(self._mathlab().evaluate(
+            expr,
+            operation=p.get("op", ["simplify"])[0],
+            variable=p.get("var", ["x"])[0],
+            at=(p.get("at", [None])[0]),
+            order=int(p.get("order", ["6"])[0] or 6),
+            subs=subs or None))
+
+    def _handle_ode(self, query: str) -> None:
+        p = parse_qs(query)
+        eq = p.get("eq", [""])[0].strip()
+        if not eq:
+            self._send_json({"error": "eq parameter required"}, status=400)
+            return
+        self._send_json(self._mathlab().solve_ode(
+            eq, func=p.get("func", ["psi"])[0], variable=p.get("var", ["x"])[0]))
+
+    def _handle_schrodinger(self, query: str) -> None:
+        p = parse_qs(query)
+        params = {}
+        for pair in p.get("params", [""])[0].split(","):
+            if "=" in pair:
+                k, _, v = pair.partition("=")
+                try:
+                    params[k.strip()] = float(v)
+                except ValueError:
+                    pass
+        try:
+            self._send_json(self._mathlab().schrodinger(
+                potential=p.get("V", ["0.5*k*x**2"])[0],
+                x_min_nm=float(p.get("xmin", ["-5"])[0]),
+                x_max_nm=float(p.get("xmax", ["5"])[0]),
+                n_points=int(p.get("points", ["1200"])[0]),
+                n_states=int(p.get("states", ["5"])[0]),
+                mass_me=float(p.get("mass", ["1"])[0]),
+                units=p.get("units", ["eV_nm"])[0],
+                params=params or None))
+        except ValueError as exc:
+            self._send_json({"ok": False, "error": f"bad parameter: {exc}"}, status=400)
+
+    def _handle_mathlab_info(self, query: str) -> None:
+        """What the Math Lab can do — the UI builds its controls from this."""
+        ml = self._mathlab()
+        self._send_json({"operations": ml.OPERATIONS,
+                         "presets": ml.PRESET_POTENTIALS,
+                         "units": ml.UNIT_SYSTEMS})
 
     def _serve_static(self, path: str) -> None:
         if path == "/":
