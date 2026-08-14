@@ -555,6 +555,113 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         book_refs=["cohen-tannoudji", "sakurai"],
         problem_ids=[],
     ),
+
+    # ── relativity, particles and cosmology ────────────────────────────────
+    # The original 32 topics were a quantum-mechanics curriculum, so a question
+    # spanning "quarks to quasars" matched the Dirac equation and nothing else:
+    # searching the graph for cosmology, quasar or quark returned nothing, and
+    # gravitation matched only Quantum Optics. The Physics shelf already holds
+    # relativity, particle-physics and astrophysics books — these topics give
+    # the matcher something to attach them to.
+    Topic(
+        id="special-relativity",
+        title="Special Relativity",
+        level="basics",
+        prerequisites=[],
+        key_concepts=["postulates of relativity", "time dilation", "length contraction",
+                      "Lorentz transformation", "spacetime interval", "mass-energy equivalence",
+                      "four-vectors", "relativistic momentum"],
+        key_equations=[
+            r"\gamma = \frac{1}{\sqrt{1 - v^2/c^2}}",
+            r"E^2 = (pc)^2 + (mc^2)^2",
+            r"\Delta s^2 = c^2\Delta t^2 - \Delta x^2 - \Delta y^2 - \Delta z^2",
+        ],
+        intuition="Demand that the speed of light is the same for everyone and geometry has to give way: clocks run slow, lengths contract, and simultaneity stops being absolute. What survives is the spacetime interval, the quantity all observers agree on.",
+        book_refs=["landau-lifshitz-qm"],
+        problem_ids=[],
+    ),
+    Topic(
+        id="general-relativity",
+        title="General Relativity & Curved Spacetime",
+        level="advanced",
+        prerequisites=["special-relativity"],
+        key_concepts=["equivalence principle", "spacetime curvature", "metric tensor",
+                      "geodesics", "Einstein field equations", "gravitational time dilation",
+                      "black holes", "event horizon", "gravitational waves"],
+        key_equations=[
+            r"G_{\mu\nu} + \Lambda g_{\mu\nu} = \frac{8\pi G}{c^4} T_{\mu\nu}",
+            r"ds^2 = -\left(1 - \frac{2GM}{rc^2}\right)c^2 dt^2 + \left(1 - \frac{2GM}{rc^2}\right)^{-1} dr^2 + r^2 d\Omega^2",
+            r"r_s = \frac{2GM}{c^2}",
+        ],
+        intuition="Gravity is not a force but the shape of spacetime. Free-falling bodies travel the straightest available paths through a geometry that mass and energy themselves bend — matter tells spacetime how to curve, curvature tells matter how to move.",
+        book_refs=["landau-lifshitz-qm"],
+        problem_ids=[],
+    ),
+    Topic(
+        id="standard-model",
+        title="The Standard Model: Quarks, Leptons & Forces",
+        level="advanced_topics",
+        prerequisites=["relativistic-qm", "second-quantization"],
+        key_concepts=["quarks", "leptons", "gauge bosons", "colour charge", "quantum chromodynamics",
+                      "electroweak unification", "Higgs mechanism", "confinement", "hadrons",
+                      "flavour", "generations"],
+        key_equations=[
+            r"SU(3)_C \times SU(2)_L \times U(1)_Y",
+            r"\mathcal{L}_{\text{QED}} = \bar{\psi}(i\gamma^\mu D_\mu - m)\psi - \tfrac{1}{4}F_{\mu\nu}F^{\mu\nu}",
+        ],
+        intuition="Every particle we have found is either a matter fermion (six quarks, six leptons) or a force carrier, and the forces themselves come from demanding local gauge symmetry. Quarks never appear alone — pull two apart and the colour field makes new ones rather than let a bare colour charge exist.",
+        book_refs=["sakurai", "weinberg-qm"],
+        problem_ids=[],
+    ),
+    Topic(
+        id="qft-fundamentals",
+        title="Quantum Field Theory: Fields, Feynman Diagrams & Renormalisation",
+        level="advanced_topics",
+        prerequisites=["second-quantization", "relativistic-qm"],
+        key_concepts=["fields as fundamental", "particle creation and annihilation",
+                      "Feynman diagrams", "propagators", "virtual particles", "loop corrections",
+                      "renormalisation", "running coupling", "vacuum energy"],
+        key_equations=[
+            r"\mathcal{L} = \tfrac{1}{2}(\partial_\mu\phi)^2 - \tfrac{1}{2}m^2\phi^2 - \tfrac{\lambda}{4!}\phi^4",
+            r"\langle 0 | T\{\phi(x)\phi(y)\} | 0 \rangle = \int\!\frac{d^4k}{(2\pi)^4}\frac{i e^{-ik(x-y)}}{k^2 - m^2 + i\epsilon}",
+        ],
+        intuition="Marry special relativity to quantum mechanics and particle number stops being fixed — energy can always make new particles. The field, not the particle, becomes the basic object, and particles are its excitations.",
+        book_refs=["weinberg-qm", "sakurai", "feynman-hibbs"],
+        problem_ids=[],
+    ),
+    Topic(
+        id="astrophysics-stars",
+        title="Stellar Astrophysics & Compact Objects",
+        level="advanced",
+        prerequisites=["identical-particles", "special-relativity"],
+        key_concepts=["hydrostatic equilibrium", "nuclear fusion", "stellar evolution",
+                      "electron degeneracy pressure", "Chandrasekhar limit", "white dwarfs",
+                      "neutron stars", "supernovae", "accretion discs", "quasars"],
+        key_equations=[
+            r"M_{\text{Ch}} \approx 1.4\, M_\odot",
+            r"\frac{dP}{dr} = -\frac{G M(r)\rho(r)}{r^2}",
+            r"L_{\text{Edd}} = \frac{4\pi G M m_p c}{\sigma_T}",
+        ],
+        intuition="A star is a slow argument between gravity pulling in and pressure pushing out. When fusion stops, the outcome is decided by quantum mechanics: electron degeneracy holds up a white dwarf until 1.4 solar masses, beyond which nothing stops the collapse. Quasars are the light of matter falling onto the black holes that result.",
+        book_refs=["landau-lifshitz-qm"],
+        problem_ids=[],
+    ),
+    Topic(
+        id="cosmology",
+        title="Cosmology: The Expanding Universe",
+        level="advanced_topics",
+        prerequisites=["general-relativity", "standard-model"],
+        key_concepts=["Hubble expansion", "FLRW metric", "cosmic microwave background",
+                      "Big Bang nucleosynthesis", "dark matter", "dark energy", "inflation",
+                      "redshift", "critical density"],
+        key_equations=[
+            r"H^2 = \left(\frac{\dot{a}}{a}\right)^2 = \frac{8\pi G}{3}\rho - \frac{kc^2}{a^2} + \frac{\Lambda c^2}{3}",
+            r"1 + z = \frac{a(t_0)}{a(t_{\text{emit}})}",
+        ],
+        intuition="Apply general relativity to everything at once and the universe cannot sit still — it expands. Run the expansion backwards and you get a hot dense beginning whose afterglow we still measure, and whose light-element abundances match the prediction.",
+        book_refs=["landau-lifshitz-qm"],
+        problem_ids=[],
+    ),
 ]}
 
 
