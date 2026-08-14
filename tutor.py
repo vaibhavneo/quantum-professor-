@@ -39,6 +39,10 @@ BRAIN_ROOT = Path(
               "/Users/vaibhavgupta/Desktop/Project Agentic AI/Agentic-AI")
 ).expanduser()
 PHYSICS_CORPORA = ["desk-physics", "desk-quantum-computing"]
+# Per-corpus retrieval quota. desk-physics is the subject library and gets the
+# lion's share; desk-quantum-computing is a programming shelf kept as a
+# supplement so its code listings can't crowd out the physics.
+CORPUS_QUOTA = {"desk-physics": 6, "desk-quantum-computing": 2}
 
 # Filter on RAW score, never on the gateway's "confidence".
 #
@@ -129,14 +133,26 @@ def retrieve_evidence(question: str, top_k: int = 6) -> dict:
         return {"available": False, "reason": f"{type(exc).__name__}: {exc}",
                 "kept": [], "rejected": [], "scope": PHYSICS_CORPORA}
 
-    try:
-        res = retrieve(question, corpora=PHYSICS_CORPORA, top_k=top_k)
-    except Exception as exc:
-        return {"available": False, "reason": f"{type(exc).__name__}: {exc}",
-                "kept": [], "rejected": [], "scope": PHYSICS_CORPORA}
+    # Query each corpus on its own quota instead of letting them compete for
+    # one pool. The physics shelf (120 books: quantum mechanics, applied
+    # quantum physics, semiconductor, particle, general) is the subject
+    # library and should dominate; quantum-computing is a programming shelf
+    # that supplements it. Pooled, its Q# code listings and pop-science intros
+    # outranked real physics on the strength of shared vocabulary.
+    hits, res = [], {}
+    for corpus, quota in CORPUS_QUOTA.items():
+        try:
+            r = retrieve(question, corpora=[corpus], top_k=quota)
+        except Exception as exc:
+            if not hits:                       # first corpus failing is fatal
+                return {"available": False, "reason": f"{type(exc).__name__}: {exc}",
+                        "kept": [], "rejected": [], "scope": PHYSICS_CORPORA}
+            continue                           # a supplement failing is not
+        res = r
+        hits.extend(r.get("hits", []))
 
     scored = []
-    for h in res.get("hits", []):
+    for h in hits:
         scored.append({
             "text": (h.get("text") or "").strip(),
             "source": Path(str(h.get("source", "?"))).name,
@@ -165,7 +181,7 @@ def retrieve_evidence(question: str, top_k: int = 6) -> dict:
 
     top_raw = kept[0]["raw_score"] if kept else 0.0
     return {"available": True, "kept": kept, "rejected": rejected,
-            "scope": PHYSICS_CORPORA, "n_returned": res.get("n", 0),
+            "scope": PHYSICS_CORPORA, "n_returned": len(hits),
             "top_raw_score": top_raw,
             "evidence_strength": ("none" if not kept
                                   else "weak" if top_raw < WEAK_EVIDENCE_RAW
