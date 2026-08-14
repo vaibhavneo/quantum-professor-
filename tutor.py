@@ -19,6 +19,8 @@ import json
 import os
 import re
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Iterator
 
@@ -165,29 +167,72 @@ _STOP = set("the a an of for on in is are do does can could would should will "
             "that this it its at be by as from into than then there".split())
 
 
+def _singular(w: str) -> str:
+    """Crude plural fold so a question and the curriculum agree on a word.
+
+    "fermion" in a question never matched "fermions" in key_concepts, so the
+    two most specific terms in the question contributed nothing to the score.
+    Both sides run through the same fold, so only consistency matters, not
+    linguistic correctness."""
+    if len(w) > 4 and w.endswith("s") and not w.endswith(("ss", "us", "is", "as")):
+        return w[:-1]
+    return w
+
+
 def _tokens(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z][a-z-]{2,}", text.lower())
+    return {_singular(w) for w in re.findall(r"[a-z][a-z-]{2,}", text.lower())
             if w not in _STOP}
 
 
+def _topic_fields(t):
+    """(strong, weak) token sets. Title/id/concepts name the subject; the
+    intuition paragraph merely mentions things."""
+    strong = _tokens(" ".join([t.title, t.id.replace("-", " "),
+                               " ".join(t.key_concepts)]))
+    return strong, _tokens(t.intuition) - strong
+
+
+# Document frequency over the curriculum: "quantum" and "particle" appear in
+# most topics and so say almost nothing about which one is meant, while
+# "fermion" or "tunneling" pin it down. Counting bare overlap let a generic
+# word decide the match — a question about photons vs fermions was answered as
+# "Infinite Square Well (Particle in a Box)" purely because "particle" is in
+# that title.
+_DF: dict[str, int] = {}
+for _t in TOPICS.values():
+    _s, _w = _topic_fields(_t)
+    for _tok in (_s | _w):
+        _DF[_tok] = _DF.get(_tok, 0) + 1
+_NTOPICS = max(len(TOPICS), 1)
+
+
+def _idf(tok: str) -> float:
+    import math
+    return math.log(1.0 + _NTOPICS / (1 + _DF.get(tok, 0)))
+
+
 def match_topic(question: str):
-    """Best curriculum topic for a question, or None. Mirrors the client-side
-    matcher so the ask panel and this endpoint agree on the subject."""
+    """Best curriculum topic for a question, or None. Scores by IDF-weighted
+    overlap so a rare, specific term outweighs a ubiquitous one."""
     q = _tokens(question)
     if not q:
         return None, []
     scored = []
     for t in TOPICS.values():
-        hay = " ".join([t.title, t.id.replace("-", " "), t.intuition,
-                        " ".join(t.key_concepts)])
-        overlap = len(q & _tokens(hay))
-        if re.search(re.escape(t.title.lower()), question.lower()):
-            overlap += 5
-        if overlap:
-            scored.append((overlap, t))
+        strong, weak = _topic_fields(t)
+        score = (sum(_idf(w) for w in q & strong) * 2.0
+                 + sum(_idf(w) for w in q & weak))
+        if t.title.lower() in question.lower():
+            score += 10.0                    # the question names the topic outright
+        if score > 0:
+            scored.append((score, t))
     scored.sort(key=lambda p: (-p[0], p[1].title))
     if not scored:
         return None, []
+    # A near-zero best match means nothing in the curriculum really fits; say so
+    # rather than dressing up an unrelated topic as the answer's subject.
+    if scored[0][0] < 1.0:
+        return None, [t for _s, t in scored[:3]]
     return scored[0][1], [t for _s, t in scored[1:4]]
 
 
@@ -508,23 +553,55 @@ def answer_stream(question: str, mode: str = "explain",
                     "mode": mode, "depth": depth,
                     "familiarity": fam, "mastery": mastery}
 
-    yield "compose", {"msg": "Composing the explanation…"}
     client = OpenAI(api_key=key, base_url="https://api.deepseek.com",
                     timeout=LLM_TIMEOUT_S, max_retries=1)
-    try:
-        prose = _compose(question, topic, evidence, computed, mode, depth, client, mastery)
-        if not prose.strip():
-            # An empty body means the reasoning chain consumed the whole budget.
-            # One retry with more room is cheaper than failing the answer.
-            yield "compose", {"msg": "Empty completion — retrying with a larger budget…"}
-            prose = _compose(question, topic, evidence, computed, mode, depth, client,
+
+    # A reasoning model takes 90-200s on this prompt, and until now the stream
+    # went completely silent for that whole stretch: the UI showed a frozen
+    # "Composing…" with no way to tell it apart from a hang, and an idle
+    # connection that long is exactly what an edge proxy drops. Run the call on
+    # a worker thread and keep emitting ticks while it works.
+    box: dict = {}
+
+    def _run():
+        try:
+            p = _compose(question, topic, evidence, computed, mode, depth, client, mastery)
+            if not p.strip():
+                # Empty body ⇒ the reasoning chain ate the whole budget.
+                box["retrying"] = True
+                p = _compose(question, topic, evidence, computed, mode, depth, client,
                              mastery, token_override=DEPTH_TOKENS.get(depth, 12000) * 2)
-    except Exception as exc:
-        yield "error", {"message": f"{type(exc).__name__}: {exc}"}
+            box["prose"] = p
+        except Exception as exc:                     # surfaced on the main thread
+            box["error"] = f"{type(exc).__name__}: {exc}"
+
+    worker = threading.Thread(target=_run, daemon=True)
+    t0 = time.monotonic()
+    yield "compose", {"msg": "Composing the explanation… (this usually takes 1-3 minutes)",
+                      "elapsed_s": 0}
+    worker.start()
+    announced_retry = False
+    while worker.is_alive():
+        worker.join(timeout=5.0)
+        if not worker.is_alive():
+            break
+        secs = int(time.monotonic() - t0)
+        if box.get("retrying") and not announced_retry:
+            announced_retry = True
+            yield "compose", {"msg": "Empty completion — retrying with a larger budget…",
+                              "elapsed_s": secs}
+        else:
+            yield "compose", {"msg": f"Composing the explanation… {secs}s", "elapsed_s": secs}
+
+    if box.get("error"):
+        yield "error", {"message": box["error"]}
         return
+    prose = box.get("prose") or ""
     if not prose.strip():
         yield "error", {"message": "model returned an empty completion twice"}
         return
+    yield "compose", {"msg": f"Composed in {int(time.monotonic() - t0)}s",
+                      "elapsed_s": int(time.monotonic() - t0)}
 
     audit = _audit(prose, evidence)
     yield "done", {
