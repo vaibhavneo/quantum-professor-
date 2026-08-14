@@ -50,7 +50,23 @@ PHYSICS_CORPORA = ["desk-physics", "desk-quantum-computing"]
 MIN_RAW_SCORE = 0.30
 MIN_CHUNK_CHARS = 200      # below this it's a heading fragment, not evidence
 WEAK_EVIDENCE_RAW = 0.45   # top hit under this ⇒ tell the user grounding is thin
-MODEL = "deepseek-v4-pro"
+# Two models, chosen by depth. Both reason before answering, but pro reasons
+# far harder — measured over 3 runs of the same prompt:
+#   flash  median 27.4s (26-36s),  642-1603 reasoning tokens, 5.9-7.5k chars
+#   pro    median 45.4s (45-127s), 1584-2811 reasoning tokens, 3.1-3.8k chars
+# Flash is 1.66x the median speed and, more importantly, far more predictable —
+# pro's long tail is what made the UI look hung. Flash is not the shorter
+# answer either; it writes more. Reserve pro for Advanced, where the extra
+# deliberation on a derivation is worth the wait.
+MODEL_FAST = "deepseek-v4-flash"
+MODEL_DEEP = "deepseek-v4-pro"
+MODEL_FOR_DEPTH = {"intro": MODEL_FAST, "intermediate": MODEL_FAST,
+                   "advanced": MODEL_DEEP}
+MODEL = MODEL_DEEP          # fallback for any caller that doesn't pass depth
+
+
+def model_for(depth: str) -> str:
+    return MODEL_FOR_DEPTH.get(depth, MODEL_FAST)
 
 
 def _api_key() -> str:
@@ -371,7 +387,8 @@ DEPTH_DIRECTIVE = {
 # tokens on reasoning alone — so a 9,000 cap left ~450 tokens of headroom and a
 # slightly longer chain came back with empty content. Budgets are sized for the
 # reasoning, not the prose.
-DEPTH_TOKENS = {"intro": 8000, "intermediate": 12000, "advanced": 18000}
+# Sized for each model's reasoning appetite, not the prose length.
+DEPTH_TOKENS = {"intro": 6000, "intermediate": 8000, "advanced": 18000}
 # That same call took 115.1s; 120s was cutting it far too fine.
 LLM_TIMEOUT_S = 300.0
 
@@ -479,7 +496,7 @@ def _compose(question, topic, evidence, computed, mode, depth, client, mastery=N
             f"COMPUTED:\n{comp}\n\nWrite the explanation now.")
 
     resp = client.chat.completions.create(
-        model=MODEL, max_tokens=token_override or DEPTH_TOKENS.get(depth, 12000),
+        model=model_for(depth), max_tokens=token_override or DEPTH_TOKENS.get(depth, 12000),
         messages=[{"role": "system", "content": _SYSTEM},
                   {"role": "user", "content": user}],
     )
@@ -548,9 +565,10 @@ def answer_stream(question: str, mode: str = "explain",
 
     mastery = record_visit(topic.id if topic else None, mode, depth)
     fam = _familiarity(mastery)
-    yield "adapt", {"msg": (f"{mode} · {depth} · this topic is {fam}"
+    chosen_model = model_for(depth)
+    yield "adapt", {"msg": (f"{mode} · {depth} · {chosen_model} · this topic is {fam}"
                             + (f" (visit {mastery.get('visits')})" if mastery else "")),
-                    "mode": mode, "depth": depth,
+                    "mode": mode, "depth": depth, "model": chosen_model,
                     "familiarity": fam, "mastery": mastery}
 
     client = OpenAI(api_key=key, base_url="https://api.deepseek.com",
@@ -615,6 +633,7 @@ def answer_stream(question: str, mode: str = "explain",
         "audit": audit,
         "mastery": mastery,
         "familiarity": fam,
+        "model": chosen_model,
         "honesty": {
             "numbers_are_computed_not_generated": bool(computed and computed.get("ran")),
             "grounded_in_library": bool(evidence.get("kept")),
