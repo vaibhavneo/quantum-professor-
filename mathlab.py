@@ -418,10 +418,85 @@ def schrodinger(potential: str = "0.5*k*x**2",
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+def self_test() -> int:
+    """Check the solver against answers that are known before it runs.
+
+    Every case here has a closed form, so a regression shows up as a number
+    that stops matching rather than a plot that looks vaguely wrong. This is
+    how the units bug and the dead piecewise presets were caught.
+    """
+    import math
+    fails = []
+
+    def check(label, got, want, tol):
+        ok = abs(got - want) <= tol
+        print(f"  {'ok  ' if ok else 'FAIL'} {label:44s} {got:.6f} vs {want:.6f}")
+        if not ok:
+            fails.append(label)
+
+    # 1 nm infinite well: E_n = n^2 pi^2 hbar^2 / 2 m L^2
+    r = schrodinger(potential="0", x_min_nm=0, x_max_nm=1, n_states=4, n_points=2000)
+    assert r["ok"], r
+    for s in r["states"]:
+        n = s["n"]
+        check(f"infinite well n={n} (eV)", s["energy_eV"],
+              n * n * (math.pi * HBAR) ** 2 / (2 * M_E * NM ** 2) / E_CHARGE, 2e-3)
+    nodes = [s["nodes"] for s in r["states"]]
+    print(f"  {'ok  ' if nodes == [0,1,2,3] else 'FAIL'} infinite well node counts"
+          f"{'':21s}{nodes}")
+    if nodes != [0, 1, 2, 3]:
+        fails.append("infinite well nodes")
+
+    # harmonic oscillator: levels equally spaced by hbar*omega, omega = sqrt(k/m)
+    r = schrodinger(potential="0.5*k*x**2", x_min_nm=-5, x_max_nm=5,
+                    params={"k": 1.0}, n_states=5, n_points=1500)
+    assert r["ok"], r
+    E = [s["energy_eV"] for s in r["states"]]
+    omega = math.sqrt(1.0 * E_CHARGE / NM ** 2 / M_E)
+    for i, gap in enumerate(b - a for a, b in zip(E, E[1:])):
+        check(f"harmonic gap {i}->{i+1} = hbar*omega", gap, HBAR * omega / E_CHARGE, 1e-4)
+    check("harmonic zero-point = hbar*omega/2", E[0], HBAR * omega / E_CHARGE / 2, 1e-4)
+
+    # finite well: the number of bound states follows from z0
+    r = schrodinger(potential="-V0*(Abs(x) < a)", x_min_nm=-3, x_max_nm=3,
+                    params={"V0": 5.0, "a": 0.5}, n_states=8, n_points=3000)
+    assert r["ok"], r
+    bound = [s for s in r["states"] if s["energy_eV"] < 0]
+    z0 = math.sqrt(2 * M_E * (5 * E_CHARGE) * (0.5 * NM) ** 2) / HBAR
+    want = math.ceil(z0 * 2 / math.pi)
+    ok = len(bound) == want
+    print(f"  {'ok  ' if ok else 'FAIL'} finite well bound-state count"
+          f"{'':16s}{len(bound)} vs {want}")
+    if not ok:
+        fails.append("finite well count")
+
+    # every preset must at least evaluate — they were all dead once
+    for key, p in PRESET_POTENTIALS.items():
+        r = schrodinger(potential=p["V"], x_min_nm=p["x_min"], x_max_nm=p["x_max"],
+                        params=p.get("params") or None, n_states=2, n_points=800)
+        print(f"  {'ok  ' if r['ok'] else 'FAIL'} preset {key}")
+        if not r["ok"]:
+            fails.append(f"preset {key}: {r['error']}")
+
+    # the namespace is the sandbox — confirm it still holds
+    for bad in ('__import__("os").system("id")', 'open("/etc/passwd")',
+                '(1).__class__', 'True.__class__.__base__'):
+        blocked = not evaluate(bad).get("ok")
+        print(f"  {'ok  ' if blocked else 'FAIL'} sandbox blocks {bad[:34]}")
+        if not blocked:
+            fails.append(f"sandbox leak: {bad}")
+
+    print("\nall checks passed" if not fails else f"\n{len(fails)} FAILED: {fails}")
+    return 1 if fails else 0
+
+
 if __name__ == "__main__":
     import json
     import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "schrodinger":
+    arg = sys.argv[1] if len(sys.argv) > 1 else "test"
+    if arg == "test":
+        raise SystemExit(self_test())
+    if arg == "schrodinger":
         print(json.dumps({k: v for k, v in schrodinger().items() if k != "states"}, indent=1))
     else:
         print(json.dumps(evaluate("exp(-x**2)", "integrate"), indent=1))

@@ -387,7 +387,13 @@ def validation(question, prose, book_ev, papers, computed, topics, depth, client
         out.update(verdict="pass" if not out["fabricated_tags"] else "caution",
                    semantic_skipped=True, note="intro depth — structural checks only")
         return out
-    src = "\n\n".join([f"[{c['tag']}] {c['text'][:600]}" for c in book_ev.get("kept", [])] +
+    # The curriculum has to be in here. C: tags are offered as citable above,
+    # but the validator used to receive only books and papers — so it looked
+    # for [C:quantum-statistical-mechanics], failed to find it, and reported
+    # correctly-cited curriculum material as unsupported. Any answer built on
+    # the curriculum was guaranteed to fail a check it could never pass.
+    src = "\n\n".join(([curriculum_block(topics)] if topics else []) +
+                      [f"[{c['tag']}] {c['text'][:600]}" for c in book_ev.get("kept", [])] +
                       [f"[A{i}] {p['summary'][:500]}" for i, p in enumerate(papers, 1)])
     if computed and computed.get("ran"):
         src += f"\n\n[T1] {computed['result']}"
