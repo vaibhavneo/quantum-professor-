@@ -22,8 +22,12 @@ import sys
 from pathlib import Path
 from typing import Iterator
 
-from .library import TOPICS
-from .physics import M_E, SOLVERS, solve
+try:                       # package import (local) / flat script (deployment)
+    from .library import TOPICS
+    from .physics import M_E, SOLVERS, solve
+except ImportError:
+    from library import TOPICS
+    from physics import M_E, SOLVERS, solve
 
 # ── configuration ─────────────────────────────────────────────────────────
 # The gateway lives in the sibling Agentic-AI workspace. Kept as a path bridge

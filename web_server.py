@@ -3,14 +3,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .library import TOPICS, BOOKS, learning_path, topics_at_level, books_at_level
-from .physics import solve, SOLVERS
-from .problems import problems_for_topic
-from .serialize import topic_to_dict, book_to_dict, problem_to_dict
+# Importable two ways on purpose: as a package (`python -m <pkg>.web_server`,
+# how it runs locally) and as a flat script (`python web_server.py`, how the
+# deployment runs it, since the checkout directory is the package itself).
+try:
+    from .library import TOPICS, BOOKS, learning_path, topics_at_level, books_at_level
+    from .physics import solve, SOLVERS
+    from .problems import problems_for_topic
+    from .serialize import topic_to_dict, book_to_dict, problem_to_dict
+except ImportError:                                    # flat-script execution
+    from library import TOPICS, BOOKS, learning_path, topics_at_level, books_at_level
+    from physics import solve, SOLVERS
+    from problems import problems_for_topic
+    from serialize import topic_to_dict, book_to_dict, problem_to_dict
 
 WEB_ROOT = Path(__file__).parent / "web"
 
@@ -156,7 +166,10 @@ class QuantumHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         try:
-            from .tutor import answer_stream
+            try:
+                from .tutor import answer_stream
+            except ImportError:
+                from tutor import answer_stream
             for stage, payload in answer_stream(question, mode=mode, depth=depth):
                 emit(stage, payload)
         except (BrokenPipeError, ConnectionResetError):
@@ -206,8 +219,11 @@ class QuantumHandler(BaseHTTPRequestHandler):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Serve the Quantum Professor web UI")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=5052)
+    # A platform (Railway, Heroku) supplies $PORT and requires 0.0.0.0; local
+    # runs keep the safer loopback default.
+    deployed = "PORT" in os.environ
+    parser.add_argument("--host", default="0.0.0.0" if deployed else "127.0.0.1")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 5052)))
     return parser
 
 
