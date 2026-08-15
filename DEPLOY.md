@@ -18,6 +18,16 @@ Without it the site still serves — topics, learning path, books, problems, the
 Solver and the whole Math Lab are keyless — but "Ask the Professor" returns an
 error instead of an explanation.
 
+## Verifying a deployment
+
+    python3 tests/smoke_deployment.py https://your-app.up.railway.app
+
+25 checks: the page and its vendored KaTeX, the keyless APIs, the solver, all
+three Math Lab endpoints, and one full streaming answer. The numeric ones have
+closed forms behind them — the 1 nm box against n²·0.376 eV, the finite well's
+bound-state count against z₀ — so a pass means the deployed solver is correct,
+not merely reachable. Exit code is non-zero on any failure.
+
 ## Binding
 
 `web_server.py` reads `$PORT` and binds `0.0.0.0` when `PORT` is present in the
