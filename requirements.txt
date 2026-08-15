@@ -1,1 +1,12 @@
+# The DeepSeek client speaks the OpenAI wire protocol.
 openai>=1.0.0
+
+# mathlab.py — sympy does the algebra, numpy does the eigensolve. These were
+# missing, so /api/math, /api/ode and /api/schrodinger would have raised
+# ImportError on any host that installs only what is listed here. The Math Lab
+# worked locally purely because both happened to be on the machine already.
+sympy>=1.12
+numpy>=1.24
+
+# anthropic is deliberately absent: agent.py and cli.py import it lazily for
+# the terminal Feynman agent, and the web app never touches that path.
