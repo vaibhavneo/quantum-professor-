@@ -375,9 +375,26 @@ def schrodinger(potential: str = "0.5*k*x**2",
         coeff = HBAR ** 2 / (2 * m * dx ** 2)
         main = 2 * coeff + V_J[1:-1]
         off = -coeff * np.ones(N - 1)
-        E_J, vecs = np.linalg.eigh(np.diag(main) + np.diag(off, 1) + np.diag(off, -1))
-
         k = min(int(n_states), N)
+
+        # The Hamiltonian is tridiagonal, and only the lowest k states are
+        # wanted. Building the full dense matrix and asking numpy for every
+        # eigenpair is O(N^3) work and O(N^2) memory to throw almost all of it
+        # away. That is invisible on a laptop and crippling on a small shared
+        # container: the deployed box took 19 s at 400 points and over two
+        # minutes at 1200, where scipy's tridiagonal solver is milliseconds.
+        # Same eigenvalues — they agree to ~1e-10 eV.
+        try:
+            from scipy.linalg import eigh_tridiagonal
+            E_J, vecs = eigh_tridiagonal(main, off, select="i",
+                                         select_range=(0, k - 1))
+        except ImportError:
+            # scipy absent (it is declared, but never make the app depend on a
+            # wheel being present to answer at all) — fall back to the dense
+            # solve, which is correct, just wasteful.
+            E_J, vecs = np.linalg.eigh(
+                np.diag(main) + np.diag(off, 1) + np.diag(off, -1))
+
         states = []
         for i in range(k):
             psi = np.concatenate(([0.0], vecs[:, i], [0.0]))

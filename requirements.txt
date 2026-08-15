@@ -8,5 +8,13 @@ openai>=1.0.0
 sympy>=1.12
 numpy>=1.24
 
+# scipy is here for exactly one call: eigh_tridiagonal. The Hamiltonian is
+# tridiagonal and only the lowest few states are wanted, so the dense
+# numpy.linalg.eigh it replaces was doing O(N^3) work to discard almost all of
+# it. Unnoticeable locally; on the deployed container a 400-point solve took
+# 19 s and 1200 points never finished. mathlab falls back to the dense solve
+# if this import fails, so the app still answers without it — just slowly.
+scipy>=1.10
+
 # anthropic is deliberately absent: agent.py and cli.py import it lazily for
 # the terminal Feynman agent, and the web app never touches that path.

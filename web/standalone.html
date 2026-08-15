@@ -1297,9 +1297,9 @@ function renderProse(md, evidence){
   let s=String(md||"");
   const blocks=[], inl=[];
   s=s.replace(/\\\[([\s\S]*?)\\\]|\$\$([\s\S]*?)\$\$/g,(m,a,b)=>{
-    blocks.push(a!==undefined?a:b); return " B"+(blocks.length-1)+" "; });
+    blocks.push(a!==undefined?a:b); return "\0B"+(blocks.length-1)+"\0"; });
   s=s.replace(/\\\(([\s\S]*?)\\\)|\$([^$\n]+)\$/g,(m,a,b)=>{
-    inl.push(a!==undefined?a:b); return " I"+(inl.length-1)+" "; });
+    inl.push(a!==undefined?a:b); return "\0I"+(inl.length-1)+"\0"; });
   s=esc(s);
   s=s.replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
   s=s.replace(/^#{1,4}\s*(.+)$/gm,'<div class="sec-h">$1</div>');
@@ -1311,11 +1311,11 @@ function renderProse(md, evidence){
     (kept.has(t)?"jump to source":"model cited a source that was not supplied")+'">'+t+"</span>");
   s=s.split(/\n{2,}/).map(p=>{
     p=p.trim(); if(!p) return "";
-    if(/^ B\d+ $/.test(p)) return p;      // bare display equation
+    if(/^\0B\d+\0$/.test(p)) return p;      // bare display equation
     return "<p>"+p.replace(/\n/g," ")+"</p>";
   }).join("");
-  s=s.replace(/ B(\d+) /g,(m,i)=>'<div class="eq eqblock">'+texHTML(blocks[+i],true)+"</div>");
-  s=s.replace(/ I(\d+) /g,(m,i)=>texHTML(inl[+i]));
+  s=s.replace(/\0B(\d+)\0/g,(m,i)=>'<div class="eq eqblock">'+texHTML(blocks[+i],true)+"</div>");
+  s=s.replace(/\0I(\d+)\0/g,(m,i)=>texHTML(inl[+i]));
   return '<div class="prose-body">'+s+"</div>";
 }
 
