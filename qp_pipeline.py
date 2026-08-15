@@ -365,9 +365,25 @@ SOURCES. Reply with ONLY JSON:
 Judge sourcing honesty, not coverage. Content the answer itself flags as
 unsupported, or openly attributes to general knowledge, is CORRECT behaviour
 and must not lower the verdict — an answer that says "the curriculum does not
-cover this" is doing its job. Reserve "fail" for claims presented as sourced
-that are not, for contradictions of a supplied source, or for restating a
-computed number instead of referring to it."""
+cover this" is doing its job.
+
+A [C:] source is a short SUMMARY of a topic the course teaches — its intuition,
+its key concepts, its key equations. It is not the full text of that topic.
+Standard textbook development of material the summary names — deriving a listed
+equation, working a standard example, explaining a listed concept in depth — is
+the expected elaboration of that source, NOT an unsupported claim. Teaching
+requires saying far more than the summary line contains. Only call something
+unsupported when it belongs to no listed topic at all AND is presented as if it
+came from one.
+
+Do not expect a citation on every sentence. Prose that develops an already-cited
+point needs no tag of its own; demanding one would make ordinary exposition look
+dishonest.
+
+Reserve "fail" for claims presented as sourced that are not, for contradictions
+of a supplied source, or for restating a computed number instead of referring to
+it. If the only issue is that the answer says more than the summaries do, that
+is "pass"."""
 
 
 def validation(question, prose, book_ev, papers, computed, topics, depth, client, budget):
@@ -514,8 +530,13 @@ def run(question: str, mode: str = "explain",
     yield "validation", {"msg": "Checking the answer against its sources…"}
     checks = validation(question, prose, book_ev, papers, computed, topics,
                         depth, client, budget)
-    yield "validation", {"msg": (f"{checks['verdict']} · {checks['uncited_sentences']}"
-                                 f"/{checks['sentences']} uncited"
+    # Show what was cited, not how many sentences went untagged. "43/55
+    # uncited" sat next to the verdict and read like an accusation, when a
+    # 55-sentence explanation carrying four sources is exactly what good
+    # teaching looks like. The count stays in the payload for the evidence
+    # panel; it just stops being the headline.
+    yield "validation", {"msg": (f"{checks['verdict']} · {len(checks['cited'])} "
+                                 f"source{'' if len(checks['cited']) == 1 else 's'} cited"
                                  + (f" · {len(checks['fabricated_tags'])} fabricated"
                                     if checks["fabricated_tags"] else "")),
                          "validation": checks}
