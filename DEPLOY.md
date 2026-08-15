@@ -1,9 +1,28 @@
 # Deploying Quantum Professor
 
-Standard library plus three packages, all in `requirements.txt`: `openai` for
-the DeepSeek client, and `sympy` + `numpy` for the Math Lab. The Math Lab is
-the reason the last two are not optional — `/api/math`, `/api/ode` and
-`/api/schrodinger` raise ImportError without them.
+Standard library plus four packages, all in `requirements.txt`: `openai` for
+the DeepSeek client, and `sympy`, `numpy`, `scipy` for the Math Lab. The Math
+Lab is the reason the rest are not optional — `/api/math`, `/api/ode` and
+`/api/schrodinger` raise ImportError without sympy and numpy, and without
+scipy the Schrödinger solver falls back to a dense eigensolve that takes over
+two minutes on a small container where the tridiagonal one takes 0.1 s.
+
+## How a deploy happens
+
+Pushing to `main` builds automatically. That is worth stating because it was
+not true until 2026-08-15: the service had a source repo but no deployment
+trigger, and the trigger could not be created because the Railway GitHub App
+had been *authorized* on the account without being *installed* — two different
+things on GitHub, and the OAuth page reports the app as connected either way.
+Five commits sat unbuilt while the site served an older revision and reported
+itself healthy.
+
+To force a build without a push — or if the trigger is ever lost again:
+
+    railway redeploy --service quantum-professor --yes --from-source
+
+`--from-source` matters. Plain `redeploy` re-runs the commit that is already
+deployed, which looks like it worked and changes nothing.
 
 ## Required environment variable
 
