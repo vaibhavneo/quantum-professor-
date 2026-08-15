@@ -123,6 +123,18 @@ class QuantumHandler(BaseHTTPRequestHandler):
                     kwargs[k] = v
         try:
             result = solve(topic_id, **kwargs)
+        except TypeError as exc:
+            # A misspelled parameter reaches the solver as an unexpected kwarg.
+            # That used to escape this handler and kill the connection with a
+            # stack trace and no response at all — `?topic=particle-in-a-box&
+            # L_nm=1` was enough to do it. It is a bad request, so say so, and
+            # name the parameters the solver actually takes.
+            import inspect
+            solver = SOLVERS.get(topic_id)
+            params = sorted(inspect.signature(solver).parameters) if solver else []
+            self._send_json({"error": str(exc), "topic": topic_id,
+                             "accepted_parameters": params}, status=400)
+            return
         except (ValueError, KeyError) as exc:
             self._send_json({"error": str(exc), "available_solvers": sorted(SOLVERS)}, status=400)
             return
