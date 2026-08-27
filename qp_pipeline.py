@@ -62,6 +62,12 @@ def plan_for(stage, depth):
     return STAGE_PLAN.get(stage, {}).get(depth, STAGE_PLAN.get(stage, {}).get("intermediate"))
 
 
+# Shared ordinal scale for the UI's depth dropdown and the question's own
+# inferred difficulty (understand(), below) - route() takes the harder of
+# the two rather than trusting the UI depth alone.
+_DEPTH_RANK = {"intro": 0, "intermediate": 1, "advanced": 2}
+
+
 class Budget:
     def __init__(self):
         self.calls = self.prompt = self.completion = self.reasoning = 0
@@ -147,6 +153,26 @@ def curriculum_block(topics) -> str:
     return "\n\n".join(out)
 
 
+# Coarse subject label for the handful of curriculum topics that reach beyond
+# core quantum mechanics - not a second classification path, just a grouping
+# over whichever topics match_topics() already found.
+_DOMAIN_OVERRIDES = {
+    "special-relativity": "relativity", "general-relativity": "relativity",
+    "standard-model": "particle-physics", "qft-fundamentals": "particle-physics",
+    "astrophysics-stars": "astrophysics", "cosmology": "astrophysics",
+    "quantum-information": "quantum-computing", "decoherence": "quantum-computing",
+    "quantum-optics": "quantum-computing",
+}
+
+
+def domain_for(topics) -> str:
+    if not topics:
+        return "general-physics"
+    from collections import Counter
+    return Counter(_DOMAIN_OVERRIDES.get(t.id, "quantum-mechanics")
+                   for t in topics).most_common(1)[0][0]
+
+
 # ── stage 2: understanding ────────────────────────────────────────────────
 
 _UNDERSTAND_SYS = """You classify a physics question for a retrieval pipeline. \
@@ -159,6 +185,9 @@ Reply with ONLY JSON:
  "needs_symbolic":true|false,    // true if an identity or derivation should be
                                  // checked algebraically
  "identity":"lhs = rhs to verify, or empty",
+ "difficulty":"intro|intermediate|advanced",  // the QUESTION's own apparent
+                                              // level - independent of
+                                              // whatever depth the UI is set to
  "restate":"one sentence restating what is being asked"}"""
 
 
@@ -171,6 +200,7 @@ def understand(question, depth, client, budget):
         "needs_literature": bool(u.get("needs_literature")),
         "needs_symbolic": bool(u.get("needs_symbolic")),
         "identity": (u.get("identity") or "").strip(),
+        "difficulty": u.get("difficulty") if u.get("difficulty") in _DEPTH_RANK else "intermediate",
         "restate": u.get("restate") or question,
     }
 
@@ -179,13 +209,20 @@ def understand(question, depth, client, budget):
 
 def route(u, topics, solver_probe, depth):
     """Deterministic. Routing is policy; spending a model call to re-derive a
-    rule the code already knows is the waste this design avoids."""
+    rule the code already knows is the waste this design avoids.
+
+    "Skipped at intro depth" used to mean the UI's depth dropdown alone; now
+    it means neither the UI depth NOR the question's own inferred difficulty
+    called for it — a graduate-level question still gets literature/symbolic
+    search even when the UI is set to intro.
+    """
+    eff = max(_DEPTH_RANK.get(depth, 1), _DEPTH_RANK.get(u.get("difficulty", "intermediate"), 1))
     r = {
         "curriculum": bool(topics),
         "books": True,
         "solver": bool(solver_probe and solver_probe.get("ran")),
-        "arxiv": bool(u["needs_literature"]) and depth != "intro",
-        "sympy": bool(u["needs_symbolic"] and u["identity"]) and depth != "intro",
+        "arxiv": bool(u["needs_literature"]) and eff > 0,
+        "sympy": bool(u["needs_symbolic"] and u["identity"]) and eff > 0,
     }
     r["why"] = [
         f"curriculum: {len(topics)} topic(s) matched" if topics else "curriculum: no topic matched",
@@ -193,10 +230,10 @@ def route(u, topics, solver_probe, depth):
         ("solver: the question carries numeric parameters" if r["solver"]
          else "solver: nothing to compute from this question"),
         ("arxiv: research-level or time-sensitive" if r["arxiv"]
-         else "arxiv: skipped at intro depth" if u["needs_literature"]
+         else "arxiv: skipped — both UI depth and question read as intro" if u["needs_literature"]
          else "arxiv: not a literature question"),
         ("sympy: an identity was offered to check" if r["sympy"]
-         else "sympy: skipped at intro depth" if u["needs_symbolic"]
+         else "sympy: skipped — both UI depth and question read as intro" if u["needs_symbolic"]
          else "sympy: nothing symbolic to verify"),
     ]
     return r
@@ -248,6 +285,18 @@ def evidence_engine(question, topics, book_ev, papers, computed, symbolic,
     return out
 
 
+def _off_topic_tags(assessment: dict) -> set[str]:
+    """Tags the evidence stage judged off-topic - S#/A# only.
+
+    A deny-list, not an allow-list: excluding only what was explicitly
+    flagged avoids silently dropping a good source the model simply forgot
+    to re-list in "usable" (a JSON-omission slip, not a relevance verdict).
+    Curriculum ([C:]) and computed ([T1]/[X1]) tags are deliberately left
+    alone - see the evidence stage's own docstring for why.
+    """
+    return set(assessment.get("off_topic") or [])
+
+
 # ── stage 6: reasoning ────────────────────────────────────────────────────
 
 _REASON_SYS = """You are the reasoning stage. Do NOT write the final answer and \
@@ -266,10 +315,13 @@ def reasoning_engine(question, u, topics, book_ev, papers, computed, symbolic,
                      assessment, depth, client, budget):
     if plan_for("reasoning", depth) is None:
         return {"skipped": True, "text": ""}
+    excluded = _off_topic_tags(assessment)
     src = "\n\n".join(
         ([curriculum_block(topics)] if topics else []) +
-        [f"[{c['tag']}] {c['source']}\n{c['text'][:800]}" for c in book_ev.get("kept", [])] +
-        [f"[A{i}] {p['title']}: {p['summary'][:500]}" for i, p in enumerate(papers, 1)])
+        [f"[{c['tag']}] {c['source']}\n{c['text'][:800]}" for c in book_ev.get("kept", [])
+         if c["tag"] not in excluded] +
+        [f"[A{i}] {p['title']}: {p['summary'][:500]}" for i, p in enumerate(papers, 1)
+         if f"A{i}" not in excluded])
     if computed and computed.get("ran"):
         src += f"\n\n[T1] computed: {computed['result']}"
     if symbolic and symbolic.get("ok"):
@@ -314,11 +366,12 @@ Use LaTeX for mathematics."""
 
 def professor_engine(question, u, topics, book_ev, papers, computed, symbolic,
                      assessment, reasoning, mode, depth, mastery, client, budget):
+    excluded = _off_topic_tags(assessment)
     parts = ([curriculum_block(topics)] if topics else [])
     parts += [f"[{c['tag']}] ({c['source']} — {c['shelf'] if 'shelf' in c else 'physics'})\n{c['text'][:1000]}"
-              for c in book_ev.get("kept", [])]
+              for c in book_ev.get("kept", []) if c["tag"] not in excluded]
     parts += [f"[A{i}] ({p['published']} · {p['title']})\n{p['summary'][:800]}"
-              for i, p in enumerate(papers, 1)]
+              for i, p in enumerate(papers, 1) if f"A{i}" not in excluded]
     if computed and computed.get("ran"):
         parts.append(f"[T1] SOLVER — formula {computed['result'].get('formula','')}, "
                      f"inputs {computed['inputs']}, result "
@@ -446,10 +499,12 @@ def run(question: str, mode: str = "explain",
 
     yield "understand", {"msg": "Reading the question…"}
     u = understand(question, depth, client, budget)
-    yield "understand", {"msg": f"{u['intent']} · {', '.join(u['topics'][:4])}",
+    topics = match_topics(question, k=4)
+    u["domain"] = domain_for(topics)
+    yield "understand", {"msg": f"{u['intent']} · {u['domain']} · {u['difficulty']} · "
+                                f"{', '.join(u['topics'][:4])}",
                          "understanding": u}
 
-    topics = match_topics(question, k=4)
     probe = compute_for(question, topics[0].id if topics else None)
     r = route(u, topics, probe, depth)
     yield "route", {"msg": " + ".join(k for k in
@@ -484,6 +539,7 @@ def run(question: str, mode: str = "explain",
     yield "evidence", {"msg": "Verifying and comparing…"}
     assessment = evidence_engine(question, topics, book_ev, papers, computed,
                                  symbolic, depth, client, budget)
+    assessment["excluded"] = sorted(_off_topic_tags(assessment))
     yield "evidence", {"msg": ("skipped (intro)" if assessment.get("skipped") else
                                f"{len(assessment['usable'])} usable · "
                                f"curriculum covers it: {assessment.get('covered_by_curriculum')} · "

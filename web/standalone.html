@@ -1366,12 +1366,15 @@ function renderAdapt(d){
     (m.visits?" (visit "+m.visits+")":"")+"</span></div>";
 }
 function renderAudit(d){
-  const a=d.audit||{}, ho=d.honesty||{};
-  const bad=(a.hallucinated_tags||[]).length;
-  return '<div class="ev-score">sentences '+(a.sentences||0)+" · cited "+
-    ((a.cited||[]).join(", ")||"none")+" · uncited sentences "+(a.uncited_sentences||0)+
-    (bad?' · <span style="color:var(--magenta)">cited '+bad+" source(s) that were never supplied</span>":"")+
-    "</div><div class=\"ev-score\" style=\"margin-top:5px\">"+esc(ho.note||"")+"</div>";
+  const v=d.validation||{}, ho=d.honesty||{};
+  const bad=(v.fabricated_tags||[]).length;
+  const vcolor=v.verdict==="fail"?"var(--magenta)":v.verdict==="caution"?"var(--amber)":"var(--accent)";
+  return '<div class="ev-score">verdict <b style="color:'+vcolor+'">'+esc(v.verdict||"unknown")+"</b>"+
+    " · sentences "+(v.sentences||0)+" · cited "+((v.cited||[]).join(", ")||"none")+
+    " · uncited sentences "+(v.uncited_sentences||0)+
+    (bad?' · <span style="color:var(--magenta)">'+bad+" fabricated tag(s): "+esc((v.fabricated_tags||[]).join(", "))+"</span>":"")+
+    "</div>"+(v.note?'<div class="ev-score" style="margin-top:5px">'+esc(v.note)+"</div>":"")+
+    '<div class="ev-score" style="margin-top:5px">'+esc(ho.note||"")+"</div>";
 }
 
 function wireAnswerBubble(aDiv, d){
@@ -1429,7 +1432,7 @@ function askDoAsk(){
 
   let es, settled=false;
   try{ es=new EventSource(url); }catch(err){ localFallback("EventSource unavailable"); return; }
-  ["match","retrieve","compute","adapt","compose"].forEach(st=>es.addEventListener(st,e=>{
+  ["understand","route","gather","evidence","reasoning","professor","validation"].forEach(st=>es.addEventListener(st,e=>{
     let d={}; try{ d=JSON.parse(e.data); }catch(_){}
     put(st,d.msg||"");
   }));

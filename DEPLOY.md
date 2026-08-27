@@ -47,6 +47,17 @@ closed forms behind them — the 1 nm box against n²·0.376 eV, the finite well
 bound-state count against z₀ — so a pass means the deployed solver is correct,
 not merely reachable. Exit code is non-zero on any failure.
 
+## Running the offline test suite locally
+
+    pip3 install pytest
+    python3 -m pytest tests/ -q
+
+`conftest.py` bridges the `quantum_prof` package name the tests import from
+onto this checkout (the directory itself can't be imported as-is, since
+Python identifiers can't contain hyphens). `pytest` is a local dev-only
+dependency and deliberately isn't in `requirements.txt` — the deployed app
+never runs its own test suite.
+
 ## Binding
 
 `web_server.py` reads `$PORT` and binds `0.0.0.0` when `PORT` is present in the
