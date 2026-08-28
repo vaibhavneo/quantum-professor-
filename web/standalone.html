@@ -265,6 +265,14 @@ details.trace-fold[open]>summary::before{content:"▾ "}
 .prov-computed{background:var(--accent-soft);color:var(--accent)}
 .prov-retrieved{background:var(--violet-soft);color:var(--violet)}
 .prov-generated{background:var(--amber-soft);color:var(--amber)}
+.prov-offline{background:var(--amber-soft);color:var(--amber)}
+.prov-degraded{background:var(--violet-soft);color:var(--violet)}
+.prov-insufficient{background:var(--magenta-soft);color:var(--magenta)}
+.answer-mode-note{font-size:.8rem;color:var(--muted);margin:8px 0;padding:8px 10px;
+  border-left:3px solid var(--border);border-radius:2px}
+.answer-mode-note.offline{border-left-color:var(--amber)}
+.answer-mode-note.degraded{border-left-color:var(--violet)}
+.answer-mode-note.insufficient{border-left-color:var(--magenta)}
 .computed-card{border:1px solid var(--accent);border-radius:var(--r);padding:11px 14px;margin:12px 0;
   background:var(--accent-soft)}
 .computed-card .ch{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:.78rem;color:var(--muted)}
@@ -1071,24 +1079,42 @@ function askTokenize(s){
 function askTopicText(t){
   return [t.title,(t.key_concepts||[]).join(" "),t.intuition,(t.key_equations||[]).map(tex).join(" ")].join(" ");
 }
-const ASK_TOKENS=Object.fromEntries(T.map(t=>[t.id,{
-  title:askTokenize(t.title), concepts:askTokenize((t.key_concepts||[]).join(" ")),
-  intuition:askTokenize(t.intuition)
-}]));
-function askScoreTopic(qset,t){
+/* Mirrors tutor.py's _score_topics()/match_topic(): IDF-weighted overlap
+   (a rare, specific term outweighs a ubiquitous one) plus a floor requiring
+   more than one coincidental token hit, unless the topic is named outright.
+   Without this, this fully-offline fallback reproduces the exact bug the
+   backend used to have - "quantum" alone is common enough across a
+   quantum-mechanics curriculum that any question containing it would score
+   on every quantum-titled topic regardless of real relevance. */
+const ASK_TOKENS=Object.fromEntries(T.map(t=>{
+  const strong=new Set([...askTokenize(t.title), ...askTokenize(t.id.replace(/-/g," ")),
+                        ...askTokenize((t.key_concepts||[]).join(" "))]);
+  const weak=new Set(askTokenize(t.intuition).filter(w=>!strong.has(w)));
+  return [t.id,{strong,weak}];
+}));
+const ASK_DF={};
+T.forEach(t=>{
   const tk=ASK_TOKENS[t.id];
-  let score=0;
-  for(const w of qset){
-    if(tk.title.includes(w)) score+=3;
-    if(tk.concepts.includes(w)) score+=2;
-    if(tk.intuition.includes(w)) score+=1;
-  }
+  new Set([...tk.strong,...tk.weak]).forEach(w=>{ ASK_DF[w]=(ASK_DF[w]||0)+1; });
+});
+const ASK_NTOPICS=Math.max(T.length,1);
+function askIdf(w){ return Math.log(1+ASK_NTOPICS/(1+(ASK_DF[w]||0))); }
+const ASK_MIN_SCORE=1.0;
+function askScoreTopic(qset,t,question){
+  const tk=ASK_TOKENS[t.id];
+  const strongHits=[...qset].filter(w=>tk.strong.has(w));
+  const namedOutright=question.toLowerCase().includes(t.title.toLowerCase());
+  if(!namedOutright && strongHits.length<Math.min(2,qset.size)) return 0;
+  let score=strongHits.reduce((s,w)=>s+askIdf(w),0)*2.0;
+  for(const w of qset){ if(tk.weak.has(w)) score+=askIdf(w); }
+  if(namedOutright) score+=10.0;
   return score;
 }
 function askMatchTopics(question){
   const qset=new Set(askTokenize(question));
   if(!qset.size) return [];
-  const scored=T.map(t=>({t,score:askScoreTopic(qset,t)})).filter(x=>x.score>0);
+  const scored=T.map(t=>({t,score:askScoreTopic(qset,t,question)}))
+    .filter(x=>x.score>=ASK_MIN_SCORE);
   scored.sort((a,b)=>b.score-a.score||a.t.title.localeCompare(b.t.title));
   return scored;
 }
@@ -1356,6 +1382,39 @@ function renderEvidence(ev){
   return h;
 }
 
+function renderAnswerMode(d){
+  const mode=d.answer_mode||"online";
+  if(mode==="online") return "";
+  const suggestionsHTML=()=>(d.suggestions||[]).map(id=>{
+    const t=byId[id]; return t?'<button class="linkbtn ask-topic-link" data-goto="'+
+      esc(id)+'">'+esc(t.title)+"</button>":"";
+  }).filter(Boolean).join(" ");
+  if(mode==="offline"){
+    const why=(d.provider_error&&d.provider_error.message)||"DeepSeek is unavailable";
+    return '<div class="answer-mode-note offline">'+
+      '<span class="prov prov-offline">offline knowledge answer</span> '+
+      esc(why)+" — this is assembled directly from the curriculum and your library, "+
+      "with no AI reasoning applied.</div>";
+  }
+  if(mode==="degraded"){
+    // Reasoning is unavailable AND nothing retrieved is strong enough to
+    // confidently narrate - this is "related material", distinct from both
+    // a real offline answer and outright insufficient evidence.
+    const suggestions=suggestionsHTML();
+    return '<div class="answer-mode-note degraded">'+
+      '<span class="prov prov-degraded">related material</span> '+
+      "The reasoning service is unavailable, and nothing retrieved is strong enough "+
+      "to confidently explain this — showing genuinely relevant material only, not an answer."+
+      (suggestions?"<br>You might instead ask about: "+suggestions:"")+"</div>";
+  }
+  // insufficient_evidence
+  const suggestions=suggestionsHTML();
+  return '<div class="answer-mode-note insufficient">'+
+    '<span class="prov prov-insufficient">insufficient evidence</span> '+
+    "No curriculum topic or library passage was relevant enough to answer this — "+
+    "showing nothing rather than guessing."+
+    (suggestions?"<br>You might instead ask about: "+suggestions:"")+"</div>";
+}
 function renderAdapt(d){
   if(!d.familiarity) return "";
   const m=d.mastery||{};
@@ -1390,6 +1449,12 @@ function wireAnswerBubble(aDiv, d){
   }));
 }
 
+/* The previous turn's trimmed understanding, handed back to the backend on
+   the next question so a correction ("I actually meant X and Y") can update
+   that context server-side - no session storage anywhere, just this one
+   in-memory value passed along by the client that already has it. */
+let lastTurn=null;
+
 /* Streams /api/ask and shows each stage as it lands. Falls back to the local
    curriculum-only answer if the backend isn't reachable, so the page still
    works as a standalone file. */
@@ -1417,18 +1482,29 @@ function askDoAsk(){
     r.className="trace-row "+(cls===undefined?"run":cls);
     r.querySelector(".mg").textContent=msg||"";
   };
+  // Only reached when the server itself is unreachable (network down, no
+  // backend at all) - the backend now resolves a DeepSeek provider failure
+  // into a normal "done" event with answer_mode "offline", which is a
+  // materially better answer (real book evidence, not just curriculum
+  // blurbs) and must never be confused with this cruder, client-only path.
   const localFallback=(why)=>{
-    put("offline",why,"err");
+    put("client-only",why,"err");
     const ans=askAnswer(q);
-    bubble.insertAdjacentHTML("beforeend",ans.html+
+    bubble.insertAdjacentHTML("beforeend",
+      '<div class="answer-mode-note offline"><span class="prov prov-offline">client-only — '+
+      "no server reachable</span> "+esc(why)+"</div>"+ans.html+
       '<button class="icon-btn ask-speak" type="button" title="Read this answer aloud">🔊</button>');
     wireAnswerBubble(aDiv,{prose:ans.plainText});
   };
 
   const sel=id=>{const e=document.getElementById(id); return e?e.value:null;};
-  const url="/api/ask?q="+encodeURIComponent(q)+
+  let url="/api/ask?q="+encodeURIComponent(q)+
     "&mode="+encodeURIComponent(sel("ask-mode")||"explain")+
     "&depth="+encodeURIComponent(sel("ask-depth")||"intermediate");
+  if(lastTurn){
+    const priorJson=JSON.stringify(lastTurn);
+    if(priorJson.length<1200) url+="&prior="+encodeURIComponent(priorJson);
+  }
 
   let es, settled=false;
   try{ es=new EventSource(url); }catch(err){ localFallback("EventSource unavailable"); return; }
@@ -1439,8 +1515,14 @@ function askDoAsk(){
   es.addEventListener("done",e=>{
     settled=true; es.close();
     let d; try{ d=JSON.parse(e.data); }catch(err){ localFallback("bad payload"); return; }
+    if(d.understanding){
+      const u=d.understanding;
+      lastTurn={restate:u.restate,topics:u.topics,domain:u.domain,
+               comparison_targets:u.comparison_targets,difficulty:u.difficulty};
+    }
     Object.keys(rows).forEach(k=>rows[k].className="trace-row");
     bubble.innerHTML=
+      renderAnswerMode(d)+
       renderComputed(d.computed)+
       renderProse(d.prose,d.evidence)+
       renderAdapt(d)+

@@ -173,6 +173,21 @@ class QuantumHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "q parameter required"}, status=400)
             return
 
+        # The previous turn's trimmed "understanding", handed back by the
+        # client so a correction ("I actually meant X and Y") can update
+        # that context instead of being scored as an unrelated new question.
+        # No server-side session store: malformed/oversized/missing input is
+        # just treated as no prior turn, never a 400.
+        prior = None
+        raw_prior = params.get("prior", [None])[0]
+        if raw_prior:
+            try:
+                prior = json.loads(raw_prior)
+                if not isinstance(prior, dict):
+                    prior = None
+            except (TypeError, ValueError):
+                prior = None
+
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -193,7 +208,7 @@ class QuantumHandler(BaseHTTPRequestHandler):
                 from .qp_pipeline import run as answer_stream
             except ImportError:                        # flat-script execution
                 from qp_pipeline import run as answer_stream
-            for stage, payload in answer_stream(question, mode=mode, depth=depth):
+            for stage, payload in answer_stream(question, mode=mode, depth=depth, prior=prior):
                 emit(stage, payload)
         except (BrokenPipeError, ConnectionResetError):
             return                      # client navigated away mid-answer

@@ -243,29 +243,60 @@ def _idf(tok: str) -> float:
     return math.log(1.0 + _NTOPICS / (1 + _DF.get(tok, 0)))
 
 
-def match_topic(question: str):
-    """Best curriculum topic for a question, or None. Scores by IDF-weighted
-    overlap so a rare, specific term outweighs a ubiquitous one."""
+# A near-zero best match means nothing in the curriculum really fits; say so
+# rather than dressing up an unrelated topic as the answer's subject.
+MIN_TOPIC_SCORE = 1.0
+
+
+def _score_topics(question: str) -> list:
+    """Every topic that plausibly matches, IDF-scored and gated.
+
+    A topic can score nonzero from ONE coincidental token: density-matrix's
+    own key_concepts name "classical vs quantum uncertainty", so a question
+    about classical mechanics picks up a hit on "classical" alone despite
+    the topic being about something else entirely. IDF weighting doesn't
+    catch this - "classical" isn't a ubiquitous word here, just one that
+    happens to appear inside a handful of topics that contrast themselves
+    against it. Requiring more than a single distinct strong-field token
+    overlap (unless the topic's exact title is named outright) tells a real
+    match from a coincidental one, while a short question like "what is
+    spin" - which only ever has one real token to give - still gets through.
+    """
     q = _tokens(question)
     if not q:
-        return None, []
+        return []
     scored = []
     for t in TOPICS.values():
         strong, weak = _topic_fields(t)
-        score = (sum(_idf(w) for w in q & strong) * 2.0
-                 + sum(_idf(w) for w in q & weak))
-        if t.title.lower() in question.lower():
-            score += 10.0                    # the question names the topic outright
+        strong_hits = q & strong
+        named_outright = t.title.lower() in question.lower()
+        if not named_outright and len(strong_hits) < min(2, len(q)):
+            continue
+        score = sum(_idf(w) for w in strong_hits) * 2.0 + sum(_idf(w) for w in q & weak)
+        if named_outright:
+            score += 10.0
         if score > 0:
             scored.append((score, t))
     scored.sort(key=lambda p: (-p[0], p[1].title))
+    return scored
+
+
+def match_topic(question: str):
+    """Best curriculum topic for a question, or None. Scores by IDF-weighted
+    overlap so a rare, specific term outweighs a ubiquitous one."""
+    scored = _score_topics(question)
     if not scored:
         return None, []
-    # A near-zero best match means nothing in the curriculum really fits; say so
-    # rather than dressing up an unrelated topic as the answer's subject.
-    if scored[0][0] < 1.0:
-        return None, [t for _s, t in scored[:3]]
-    return scored[0][1], [t for _s, t in scored[1:4]]
+    if scored[0][0] < MIN_TOPIC_SCORE:
+        return None, [t for s, t in scored[:3] if s >= MIN_TOPIC_SCORE]
+    return scored[0][1], [t for s, t in scored[1:4] if s >= MIN_TOPIC_SCORE]
+
+
+def suggest_related(question: str, k: int = 3) -> list:
+    """Unfloored suggestions for "you might instead ask about..." - never
+    fed into evidence, only ever shown as an explicit suggestion."""
+    scored = _score_topics(question)
+    return [t for _s, t in scored[:k]]
 
 
 # ── parameter extraction (ported from the client so both agree) ───────────
