@@ -1275,3 +1275,294 @@ def test_reasoning_engine_intro_depth_skip_has_the_new_empty_fields():
     assert result["skipped"] is True
     assert result["derivation_plan"] == ""
     assert result["physical_interpretation"] == ""
+
+
+# ── Physics + Mathematical Verification Layer: prove Derivation ->
+#    Verification -> Professor Answer actually executes in the REAL run()
+#    pipeline, not just that verify_derivation() is callable in isolation ──
+
+def test_derivation_verification_reaches_the_professor_prompt_in_the_real_pipeline(monkeypatch):
+    """The definitive wiring proof. "energy of n=2 electron in a 1nm box" is a
+    real question that genuinely drives match_topics() to particle-in-a-box
+    and compute_for() to the real solver (energy_eV=1.504121) - nothing about
+    retrieval or the solver is mocked. Only the LLM boundary is faked, and
+    only the Derivation Plan stage is given a scripted reply: a deliberately
+    WRONG energy value the verifier must catch.
+
+    Proving the payload contains a "verification" key would only show
+    verify_derivation() was called somewhere. The real claim - that a failed
+    derivation genuinely reaches the Professor stage rather than being
+    computed and then dropped on the floor - requires inspecting the ACTUAL
+    text sent to the professor's LLM call, which is what this test does.
+    """
+    question = "energy of n=2 electron in a 1nm box"
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": False, "kept": [],
+                                           "rejected": [], "scope": []})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+
+    wrong_derivation = ("DERIVATION PLAN\n"
+                       "- apply the particle-in-a-box energy formula for this configuration\n"
+                       "- the result comes out to approximately 5.0 eV\n\n"
+                       "PHYSICAL INTERPRETATION\n"
+                       "- confinement quantizes the allowed energies")
+    dispatch = by_system_prompt({
+        "You are the Derivation Plan & Physical Interpretation stage": wrong_derivation,
+    })
+    client = FakeClient(text="stub answer", dispatch=dispatch)
+
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run(question, depth="intermediate"))
+
+    stage, payload = events[-1]
+    assert stage == "done"
+    assert payload["answer_mode"] == "online"
+
+    # 1. The premise: compute_for() really ran the real solver, not a stub.
+    assert payload["computed"]["result"]["topic"] == "particle-in-a-box"
+    assert payload["computed"]["result"]["energy_eV"] == 1.504121
+
+    # 2. verify_derivation() ran inside run() and actually caught the wrong
+    #    number the scripted Derivation stage stated.
+    verification = payload["verification"]
+    assert verification["status"] != "verified_mathematically"
+    assert any(f["check"] == "known_result" for f in verification["failed"])
+    assert any("1.504121" in c["correction"] for c in verification["corrections"])
+
+    # 3. THE key proof: that failure and correction are genuinely present in
+    #    the text sent to the professor stage's own LLM call - not merely
+    #    returned in a payload dict a caller could plug in separately.
+    professor_calls = [c for c in client.completions.calls
+                       if "You are a physics tutor in the style of Feynman"
+                       in c["messages"][0]["content"]]
+    assert len(professor_calls) == 1
+    professor_prompt = professor_calls[0]["messages"][1]["content"]
+    assert "VERIFICATION" in professor_prompt
+    assert "1.504121" in professor_prompt
+    assert "never present the failed value as correct" in professor_prompt
+
+    # 4. Zero LLM calls were added by the verification layer: still exactly
+    #    the 5 pre-existing stages (understand, evidence, reasoning,
+    #    professor, validation) - verification itself is pure sympy/Python.
+    assert len(client.completions.calls) == 5
+
+
+def test_correct_derivation_is_reported_as_verified_mathematically_to_the_professor(monkeypatch):
+    """Negative control for the same wiring: a Derivation stage that states
+    the RIGHT number must reach the professor prompt as verified, not as a
+    failure - the previous test proves failures propagate, this proves
+    success does too (the professor isn't just told "not verified" always).
+    """
+    question = "energy of n=2 electron in a 1nm box"
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": False, "kept": [],
+                                           "rejected": [], "scope": []})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+
+    right_derivation = ("DERIVATION PLAN\n"
+                       "- apply the particle-in-a-box energy formula for this configuration\n"
+                       "- the result comes out to approximately 1.504121 eV\n\n"
+                       "PHYSICAL INTERPRETATION\n"
+                       "- confinement quantizes the allowed energies")
+    dispatch = by_system_prompt({
+        "You are the Derivation Plan & Physical Interpretation stage": right_derivation,
+    })
+    client = FakeClient(text="stub answer", dispatch=dispatch)
+
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run(question, depth="intermediate"))
+
+    payload = events[-1][1]
+    assert payload["verification"]["status"] == "verified_mathematically"
+    assert not payload["verification"]["failed"]
+
+    professor_calls = [c for c in client.completions.calls
+                       if "You are a physics tutor in the style of Feynman"
+                       in c["messages"][0]["content"]]
+    professor_prompt = professor_calls[0]["messages"][1]["content"]
+    assert "status=verified_mathematically" in professor_prompt
+
+
+def test_professor_engine_states_all_four_verification_statuses_distinctly():
+    """The Professor must be able to tell all four verification outcomes
+    apart in its own prompt - not just the two "happy path" ones. Builds a
+    real VerificationResult for each status directly (this is about
+    professor_engine()'s own wiring/phrasing contract, independent of which
+    specific checks produce which status - that mapping is verification.py's
+    own responsibility, covered separately in test_verification.py).
+    """
+    from quantum_prof.verification import VerificationResult
+
+    cases = {
+        "verified_mathematically": VerificationResult(
+            status="verified_mathematically", confidence="high",
+            passed=[{"check": "conservation_law", "detail": "d"}]),
+        "partially_verified": VerificationResult(
+            status="partially_verified", confidence="medium",
+            passed=[{"check": "dimensional_consistency", "detail": "d"}],
+            failed=[{"check": "known_result", "detail": "d"}],
+            corrections=[{"issue": "known_result", "correction": "the correct value is 1.5 eV"}]),
+        "not_independently_verified": VerificationResult(
+            status="not_independently_verified", confidence="low"),
+        "failed": VerificationResult(
+            status="failed", confidence="low",
+            failed=[{"check": "known_result", "detail": "d"}],
+            corrections=[{"issue": "known_result", "correction": "the correct value is 1.5 eV"}]),
+    }
+    prompts = {}
+    for name, verification in cases.items():
+        client = FakeClient()
+        qp.professor_engine("q", {"restate": "q"}, [], {"kept": []}, [], None, None,
+                            _assessment([], []), {"skipped": True, "text": ""}, "explain",
+                            "intermediate", {}, client, qp.Budget(), verification=verification)
+        prompts[name] = client.completions.last_prompt
+        assert f"status={name}" in prompts[name]
+
+    # each status's prompt text must be distinguishable from the others -
+    # the Professor can't tell them apart if they all render identically.
+    assert len({p.split("VERIFICATION")[1][:80] for p in prompts.values()}) == 4
+
+
+# ── Question -> Physics Intent -> Evidence + Prerequisites -> Mathematical
+#    Objects -> Derivation Plan -> Derivation -> VERIFICATION -> Physical
+#    Interpretation -> Professor Answer: prove the REAL chain, not just that
+#    the functions exist ──────────────────────────────────────────────────
+
+def test_full_chain_qho_derivation_traces_mathematical_objects_through_to_professor(monkeypatch):
+    """One real end-to-end pipeline run on "Derive the energy levels of the
+    quantum harmonic oscillator and explain their physical meaning" - a
+    conceptual/derivation question (no numeric solver run, unlike the
+    particle-in-a-box tests above), so this exercises the curriculum-only
+    path through Mathematical Objects. Only the LLM boundary is mocked;
+    match_topics(), compute_for(), build_evidence_pack() (which extracts
+    Mathematical Objects), and verify_derivation() all run for real.
+
+    Traces actual data identity/content across each stage boundary, not
+    just that the pipeline reaches "done":
+      Physics Intent      -> u["domain"] == "quantum-mechanics", real topics matched
+      Evidence+Prereq      -> pack.prerequisite_concepts is real curriculum data
+      Mathematical Objects -> pack.mathematical_objects contains the real
+                              harmonic-oscillator key_equations, tagged C:harmonic-oscillator
+      Derivation Plan       -> the mocked LLM reply citing that exact tag
+                              appears in reasoning["derivation_plan"]
+      Verification          -> verify_derivation() actually re-parses that
+                              same derivation text and the same pack, and
+                              genuinely PASSES it (a real citation, a real
+                              conserved-energy check) - not a stub result
+      Physical Interpretation -> reasoning["physical_interpretation"] is
+                              non-empty and distinct from the derivation plan
+      Professor Answer      -> the verification status reaches the professor
+                              prompt AND (since this mock simulates a
+                              compliant reply) the final prose
+    """
+    question = "Derive the energy levels of the quantum harmonic oscillator and explain their physical meaning."
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": False, "kept": [],
+                                           "rejected": [], "scope": []})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+
+    derivation_reply = (
+        "DERIVATION PLAN\n"
+        "- start from the quantum harmonic oscillator Hamiltonian [C:harmonic-oscillator]\n"
+        "- solving the Schrodinger equation for this potential quantizes the energy\n"
+        "- result: E_n = hbar*omega*(n + 1/2) for n = 0, 1, 2, ...\n\n"
+        "PHYSICAL INTERPRETATION\n"
+        "- the ground state (n=0) still has nonzero zero-point energy\n"
+        "- levels are evenly spaced by hbar*omega, unlike the hydrogen atom's spectrum")
+    professor_reply = (
+        "The quantum harmonic oscillator's energy levels are quantized as "
+        "E_n = hbar*omega(n + 1/2) [C:harmonic-oscillator]. This has been verified "
+        "mathematically: the citation checks out and energy conservation holds "
+        "for the underlying classical motion.")
+    dispatch = by_system_prompt({
+        "You are the Derivation Plan & Physical Interpretation stage": derivation_reply,
+        "You are a physics tutor in the style of Feynman": professor_reply,
+    })
+    client = FakeClient(text="stub answer", dispatch=dispatch)
+
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run(question, depth="intermediate"))
+
+    by_stage = {}
+    for stage, payload in events:
+        by_stage.setdefault(stage, []).append(payload)
+    payload = events[-1][1]
+    assert events[-1][0] == "done"
+    assert payload["answer_mode"] == "online"
+
+    # Physics Intent: real deterministic + LLM-merged understanding.
+    assert payload["understanding"]["domain"] == "quantum-mechanics"
+    assert any(t["id"] == "harmonic-oscillator" for t in payload["topics"])
+
+    # Evidence + Prerequisites: real curriculum prerequisite graph data.
+    assert payload["evidence_pack"]["prerequisite_concepts"]
+
+    # Mathematical Objects: the real curriculum key_equations, correctly
+    # tagged - not empty, not a placeholder.
+    math_objects = payload["evidence_pack"]["mathematical_objects"]
+    assert math_objects, "Mathematical Objects must be populated for a real curriculum topic"
+    ho_objects = [o for o in math_objects if o["topic_id"] == "harmonic-oscillator"]
+    assert ho_objects and ho_objects[0]["tag"] == "C:harmonic-oscillator"
+
+    # Derivation Plan: the mocked reply's content genuinely made it through
+    # reasoning_engine()'s own parsing into the structured fields.
+    reasoning = payload["reasoning"]
+    assert "harmonic oscillator Hamiltonian" in reasoning["derivation_plan"]
+    assert "[C:harmonic-oscillator]" in reasoning["derivation_plan"]
+    # Physical Interpretation: present, and not just a copy of the plan.
+    assert "zero-point energy" in reasoning["physical_interpretation"]
+    assert reasoning["physical_interpretation"] != reasoning["derivation_plan"]
+
+    # Verification: ran for real against that exact derivation text and
+    # pack - a genuine pass (real citation + real conservation check),
+    # not a stub. Confirms it is NOT reachable via a false "nothing to
+    # check" default: something real was checked and passed.
+    verification = payload["verification"]
+    assert verification["status"] == "verified_mathematically"
+    assert {p["check"] for p in verification["passed"]} >= {"symbol_consistency", "conservation_law"}
+    assert not verification["failed"]
+
+    # Professor Answer: the status reached the professor's own LLM prompt...
+    professor_calls = [c for c in client.completions.calls
+                       if "You are a physics tutor in the style of Feynman"
+                       in c["messages"][0]["content"]]
+    assert len(professor_calls) == 1
+    assert "status=verified_mathematically" in professor_calls[0]["messages"][1]["content"]
+    # ...and (since the mocked reply simulates a compliant model) the final
+    # answer text itself states the verification outcome plainly.
+    assert "verified" in payload["prose"].lower()
+
+    # Exactly the 5 pre-existing LLM calls - the whole chain above added zero.
+    assert len(client.completions.calls) == 5
+
+
+def test_run_with_no_curriculum_match_has_empty_mathematical_objects_and_does_not_crash(monkeypatch):
+    """Requirement: missing Mathematical Objects must not crash the
+    pipeline. A question that matches no curriculum topic and triggers no
+    solver leaves pack.mathematical_objects == [] - but real book evidence
+    keeps this past the (separate, pre-existing) relevance-gate
+    short-circuit, so it's actually the empty-math-objects case being
+    exercised here, not the unrelated "nothing found at all" one.
+    """
+    monkeypatch.setattr(qp, "match_topics", lambda q, k=4: [])
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": True, "evidence_strength": "usable",
+                                           "rejected": [], "kept": [
+                            {"tag": "S1", "source": "Some Book", "text": "z" * 250,
+                             "raw_score": 0.6}]})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+    monkeypatch.setattr(qp, "compute_for", lambda q, topic_id: None)
+
+    client = FakeClient(text="a general physics answer with no curriculum backing")
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run("what is the anthropic principle in cosmology", depth="intermediate"))
+
+    assert events[-1][0] == "done"
+    payload = events[-1][1]
+    assert payload["evidence_pack"]["mathematical_objects"] == []
+    assert payload["verification"]["status"] == "not_independently_verified"
+    assert payload["verification"]["passed"] == [] and payload["verification"]["failed"] == []
