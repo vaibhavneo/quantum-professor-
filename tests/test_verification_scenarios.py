@@ -98,10 +98,15 @@ def test_scenario_5_hamiltonian_mechanics_has_no_curriculum_topic_but_still_veri
 # ── 6. Qubit / Pauli matrices ────────────────────────────────────────────────
 
 def test_scenario_6_qubit_pauli_matrix_algebra_is_verified_by_real_sympy():
+    # Merely mentioning qubits/Pauli matrices is not a mathematical claim -
+    # operator_consistency now parses and verifies the SPECIFIC product
+    # claimed, via direct matrix multiplication, rather than confirming a
+    # fixed reference fact regardless of what the derivation actually says.
+    text = "multiplying the Pauli matrices directly, sigma_x sigma_y = i*sigma_z."
     pack = EvidencePack(question="explain qubits using the Pauli matrices")
-    result = v.check_operator_consistency(pack)
+    result = v.check_operator_consistency(text, pack)
     assert result.status == "pass"
-    assert "Pauli" in result.detail  # sigma_i^2 = I and [sigma_x, sigma_y] = 2i*sigma_z
+    assert "sigma_x*sigma_y" in result.detail
 
 
 # ── 7. A deliberately incorrect derivation ──────────────────────────────────

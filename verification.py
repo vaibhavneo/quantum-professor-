@@ -156,63 +156,189 @@ def check_algebraic_consistency(u: dict, symbolic: dict | None) -> CheckResult:
                        correction=f"difference is {symbolic.get('difference')}, not 0")
 
 
-def check_operator_consistency(pack) -> CheckResult:
-    """4. Operator consistency - real, non-commutative operator algebra via
-    sympy.physics.quantum, not string matching. Checks the canonical
-    commutation relation when position/momentum operators are in play, and
-    Pauli matrix algebra when qubits are in play - the two operator
-    relations this curriculum actually teaches."""
-    names = " ".join(o.get("name", "") + " " + o.get("expression", "")
-                     for o in (pack.mathematical_objects if pack else []))
+_PAULI_MATS = None  # lazily built - importing sympy at module load isn't needed elsewhere
+
+
+def _pauli_matrices():
+    global _PAULI_MATS
+    if _PAULI_MATS is None:
+        import sympy as sp
+        _PAULI_MATS = {
+            "x": sp.Matrix([[0, 1], [1, 0]]),
+            "y": sp.Matrix([[0, -sp.I], [sp.I, 0]]),
+            "z": sp.Matrix([[1, 0], [0, -1]]),
+        }
+    return _PAULI_MATS
+
+
+# sigma_x sigma_y = <rhs>, sigma1*sigma2 = <rhs>, sigma_y sigma_z = ... etc -
+# captures which two Pauli matrices are claimed to multiply together, and the
+# raw text of whatever the derivation claims the product equals.
+_PAULI_PRODUCT_CLAIM_RE = re.compile(
+    r"sigma[_\s]?([xyz])\s*[\*\s]\s*sigma[_\s]?([xyz])\s*=\s*([^.\n;]+)", re.I)
+
+# The same claim, in natural prose rather than compact equation form:
+# "multiply sigma_x and sigma_y ... the product (is|equals|works out to) Z".
+# A real claim can span a line break between naming the two matrices and
+# stating the result - this is still one bounded, specific grammar being
+# matched, not free-text NLP.
+_PAULI_PRODUCT_PROSE_RE = re.compile(
+    r"sigma[_\s]?([xyz])\s+and\s+sigma[_\s]?([xyz])\b[\s\S]{0,80}?"
+    r"(?:product|result)\b[\s\S]{0,40}?"
+    r"(?:is|equals|works out to|gives|yields)\s*([^.\n;]+)", re.I)
+
+# A bounded, honest RHS grammar: optional sign/coefficient, optional literal
+# "i", one Pauli matrix - or exactly "0". Anything outside this shape is a
+# claim this function admits it cannot safely parse, rather than guessing.
+_PAULI_RHS_RE = re.compile(r"^\s*([+-]?\s*\d*\.?\d*)\s*\*?\s*(i\b)?\s*\*?\s*sigma[_\s]?([xyz])\s*$", re.I)
+
+
+def _parse_pauli_rhs(raw: str):
+    """Returns a concrete 2x2 sympy Matrix for a bounded set of RHS shapes
+    this curriculum actually produces, or None if the claim's right-hand
+    side doesn't match one of them - a safe refusal, never a guess."""
+    import sympy as sp
+    raw = raw.strip()
+    if re.match(r"^0+\.?0*$", raw):
+        return sp.zeros(2)
+    m = _PAULI_RHS_RE.match(raw)
+    if not m:
+        return None
+    coeff_txt, i_txt, label = m.groups()
+    coeff_txt = (coeff_txt or "").replace(" ", "")
+    coeff = sp.Integer(-1) if coeff_txt == "-" else (sp.Integer(1) if coeff_txt in ("", "+")
+                                                     else sp.sympify(coeff_txt))
+    if i_txt:
+        coeff *= sp.I
+    return coeff * _pauli_matrices()[label.lower()]
+
+
+# [x,p] = <rhs>, [x, p] = ... - the canonical commutation relation.
+_COMMUTATOR_CLAIM_RE = re.compile(r"\[\s*x\s*,\s*p\s*\]\s*=\s*([^.\n;]+)", re.I)
+_COMMUTATOR_RHS_RE = re.compile(r"^\s*([+-]?\s*\d*\.?\d*)\s*\*?\s*(i\b)?\s*\*?\s*hbar\s*$", re.I)
+
+
+def _parse_commutator_rhs(raw: str):
+    """Returns (coefficient, has_i) for a bounded RHS grammar, or None if
+    unparseable. [x,p] is a postulated relation, not something derivable
+    from pure algebra - so this compares the CLAIMED coefficient/i-factor
+    against the textbook-standard i*hbar, the same reference-value
+    comparison check_known_result already does for numeric claims."""
+    raw = raw.strip()
+    m = _COMMUTATOR_RHS_RE.match(raw)
+    if not m:
+        return None
+    coeff_txt, i_txt = m.groups()
+    coeff_txt = (coeff_txt or "").replace(" ", "")
+    coeff = -1.0 if coeff_txt == "-" else (1.0 if coeff_txt in ("", "+") else float(coeff_txt))
+    return coeff, bool(i_txt)
+
+
+def _operator_topic_signal(text: str, pack) -> bool:
+    """Whether an operator/Pauli/commutator topic is plausibly in play at
+    all - used ONLY to word an honest non-finding, never to grant a pass.
+    A keyword here selects an opportunity to look for a claim; it is never
+    treated as proof of one."""
+    names = (text or "") + " " + " ".join(
+        o.get("name", "") + " " + o.get("expression", "")
+        for o in (pack.mathematical_objects if pack else []))
     names += " " + " ".join(t.title for t in (pack.topics if pack else []))
     if pack is not None:
         names += " " + " ".join(pack.concepts) + " " + (pack.question or "")
     low = names.lower()
+    return any(k in low for k in ("pauli", "qubit", "commutator", "operator"))
+
+
+def check_operator_consistency(text: str, pack) -> CheckResult:
+    """4. Operator consistency - parses the SPECIFIC operator claim the
+    derivation makes (a Pauli product, or the canonical commutator) and
+    verifies THAT, rather than confirming a fixed reference fact is
+    internally consistent regardless of what was actually claimed. A
+    keyword like 'pauli'/'qubit'/'commutator' only selects that this check
+    might be worth attempting - by itself it never constitutes proof, and a
+    claim this function can't safely parse is reported as not_applicable
+    (which resolves to not_independently_verified overall) rather than
+    guessed at."""
+    text = text or ""
     try:
-        import sympy as sp
-        if "commutator" in low or "[x,p]" in low.replace(" ", "") or "canonical commutation" in low:
-            x, p, hbar = sp.symbols("x p hbar", commutative=False)
-            # [x, p] = xp - px should symbolically equal i*hbar for the
-            # canonical relation this curriculum's uncertainty-principle
-            # and operator topics actually state.
-            i = sp.I
-            lhs = x * p - p * x
-            claimed = i * sp.Symbol("hbar")
-            # This is a reference identity (always true by definition), not
-            # something extracted from the model's prose - it verifies the
-            # curriculum's OWN stated relation is internally consistent,
-            # which is exactly what "operator consistency" can honestly mean
-            # without parsing the model's free-text operator algebra.
-            return CheckResult("operator_consistency", "pass",
-                               "canonical commutation relation [x,p] = i*hbar is the reference "
-                               "identity used; internally consistent")
-        if "pauli" in low or "qubit" in low:
-            X = sp.Matrix([[0, 1], [1, 0]])
-            Y = sp.Matrix([[0, -sp.I], [sp.I, 0]])
-            Z = sp.Matrix([[1, 0], [0, -1]])
-            I2 = sp.eye(2)
-            ok = (X * X == I2) and (Y * Y == I2) and (Z * Z == I2) and \
-                (X * Y - Y * X == 2 * sp.I * Z)
-            if ok:
+        # A derivation often restates the definition ("[x,p] = xp - px") before
+        # giving the actual claimed value ("[x,p] = i*hbar") later - trying
+        # every candidate match, not just the first, is what finds the real
+        # claim instead of giving up on an earlier, differently-shaped one.
+        pauli_candidates = (list(_PAULI_PRODUCT_CLAIM_RE.finditer(text))
+                           + list(_PAULI_PRODUCT_PROSE_RE.finditer(text)))
+        last_unparsed = None
+        for m in pauli_candidates:
+            a, b, rhs_raw = m.groups()
+            rhs = _parse_pauli_rhs(rhs_raw)
+            if rhs is None:
+                last_unparsed = (a, b, rhs_raw)
+                continue
+            mats = _pauli_matrices()
+            lhs = mats[a.lower()] * mats[b.lower()]
+            if lhs.equals(rhs):
                 return CheckResult("operator_consistency", "pass",
-                                   "Pauli matrix algebra (sigma_i^2=I, [sigma_x,sigma_y]=2i*sigma_z) verified")
+                                   f"sigma_{a}*sigma_{b} = {rhs_raw.strip()} confirmed by direct "
+                                   "matrix multiplication")
             return CheckResult("operator_consistency", "fail",
-                               "Pauli matrix algebra did not hold under direct computation")
+                               f"sigma_{a}*sigma_{b} = {rhs_raw.strip()} does not hold - direct "
+                               f"computation gives sigma_{a}*sigma_{b} = {lhs.tolist()}",
+                               correction=f"sigma_{a}*sigma_{b} actually equals {lhs.tolist()}")
+        if last_unparsed:
+            a, b, rhs_raw = last_unparsed
+            return CheckResult("operator_consistency", "not_applicable",
+                               f"found a Pauli product claim (sigma_{a}*sigma_{b} = "
+                               f"{rhs_raw.strip()}) but could not safely parse its right-hand "
+                               "side - not independently verified rather than guessed")
+
+        commutator_candidates = list(_COMMUTATOR_CLAIM_RE.finditer(text))
+        last_unparsed_c = None
+        for m2 in commutator_candidates:
+            rhs_raw = m2.group(1)
+            parsed = _parse_commutator_rhs(rhs_raw)
+            if parsed is None:
+                last_unparsed_c = rhs_raw
+                continue
+            coeff, has_i = parsed
+            if coeff == 1.0 and has_i:
+                return CheckResult("operator_consistency", "pass",
+                                   "[x,p] = i*hbar matches the canonical commutation relation")
+            return CheckResult("operator_consistency", "fail",
+                               f"[x,p] = {rhs_raw.strip()} does not match the canonical "
+                               "commutation relation",
+                               correction="the canonical commutation relation is [x,p] = i*hbar")
+        if last_unparsed_c:
+            return CheckResult("operator_consistency", "not_applicable",
+                               f"found a canonical-commutator claim ([x,p] = "
+                               f"{last_unparsed_c.strip()}) but could not safely parse its "
+                               "right-hand side - not independently verified rather than guessed")
     except Exception as exc:
         return CheckResult("operator_consistency", "warning", f"operator check errored: {exc}")
+
+    if _operator_topic_signal(text, pack):
+        return CheckResult("operator_consistency", "not_applicable",
+                           "an operator/Pauli/commutator topic appears to be in play, but no "
+                           "specific, parseable mathematical claim (e.g. 'sigma_x sigma_y = ...' "
+                           "or '[x,p] = ...') was found in the derivation to check")
     return CheckResult("operator_consistency", "not_applicable",
-                       "no recognized operator relation (commutator/Pauli) in this question")
+                       "no operator relation (commutator/Pauli) claim in this derivation")
 
 
 def check_boundary_conditions(pack, computed: dict | None) -> CheckResult:
     """5. Boundary/initial-condition consistency - topic-scoped to the one
     boundary-value problem this curriculum actually teaches in closed form:
     the infinite square well, where psi(0)=psi(L)=0 is the defining
-    condition. Verified symbolically, not asserted."""
+    condition. Verified symbolically, not asserted.
+
+    Only the PRIMARY matched topic (pack.topics[0]) counts, never any topic
+    anywhere in the list - a secondary, coincidental-overlap match (e.g. a
+    hydrogen-atom question also weakly matching particle-in-a-box on shared
+    vocabulary like "energy"/"state") must not be able to fire this check
+    for a problem that isn't actually about the infinite square well.
+    """
     topic = (computed or {}).get("result", {}).get("topic", "")
-    topic_ids = {t.id for t in (pack.topics if pack else [])}
-    if topic != "particle-in-a-box" and "particle-in-a-box" not in topic_ids \
-       and "finite-well" not in topic_ids:
+    primary_id = pack.topics[0].id if (pack and pack.topics) else None
+    if topic != "particle-in-a-box" and primary_id not in ("particle-in-a-box", "finite-well"):
         return CheckResult("boundary_conditions", "not_applicable",
                            "no boundary-value problem (infinite square well) in this question")
     try:
@@ -268,21 +394,41 @@ def check_classical_limit(computed: dict | None) -> CheckResult:
                        f"no curated classical (hbar->0) limit for solver topic {topic!r}")
 
 
+_SHM_SYSTEM_RE = re.compile(r"\b(harmonic oscillator|simple harmonic motion)\b", re.I)
+_CONSERVATION_CLAIM_RE = re.compile(r"\bconserv\w*\b|\bconstant of motion\b", re.I)
+
+
 def check_conservation_law(pack) -> CheckResult:
     """8. Conservation-law check - classical/Hamiltonian mechanics energy
     conservation for simple harmonic motion, verified by direct sympy
     differentiation (dE/dt = 0 along the actual equations of motion), not
-    asserted from the textbook statement that it holds."""
-    ids = {t.id for t in (pack.topics if pack else [])}
+    asserted from the textbook statement that it holds.
+
+    Scoped narrowly on purpose: the word "Hamiltonian" or "Lagrangian"
+    appearing anywhere in a question used to be enough to trigger this and
+    unconditionally verify ONE fixed fact (SHM energy conservation) no
+    matter what the question actually asked - so "derive Hamilton's
+    equations from the Lagrangian" was reported verified_mathematically
+    against a check that never touched Hamilton's equations at all. This
+    now fires only when the PRIMARY matched topic genuinely is the harmonic
+    oscillator, or the question both names that specific system AND
+    explicitly concerns conservation - a general Hamiltonian/Lagrangian
+    mechanics question is not, by itself, a conservation-law question.
+    """
+    primary_id = pack.topics[0].id if (pack and pack.topics) else None
     question_l = (pack.question or "").lower() if pack else ""
     concepts_l = " ".join(pack.concepts if pack else []).lower()
     signal = question_l + " " + concepts_l
-    relevant = ("harmonic-oscillator" in ids or "hamiltonian" in signal
-               or "lagrangian" in signal or "classical mechanics" in signal
-               or "simple harmonic motion" in signal)
+
+    shm_primary_topic = primary_id == "harmonic-oscillator"
+    shm_system_named = bool(_SHM_SYSTEM_RE.search(signal))
+    conservation_claimed = bool(_CONSERVATION_CLAIM_RE.search(signal))
+    relevant = shm_primary_topic or (shm_system_named and conservation_claimed)
     if not relevant:
         return CheckResult("conservation_law", "not_applicable",
-                           "no classical conservative system (SHM/Hamiltonian mechanics) in this question")
+                           "no explicit simple-harmonic-motion conservation claim, and no "
+                           "harmonic-oscillator primary topic match, to check against - this "
+                           "check does not generalize to other classical-mechanics systems")
     try:
         import sympy as sp
         t, m, k, A, w, phi = sp.symbols("t m k A w phi", positive=True, real=True)
@@ -301,6 +447,17 @@ def check_conservation_law(pack) -> CheckResult:
 
 _NUMBER_RE = re.compile(r"-?\d+\.?\d*(?:[eE][+-]?\d+)?")
 
+# Citation tags ([T1], [C:harmonic-oscillator], [X1], [S12], [A3], ...) carry
+# digits that are labels, never physics values - "T1" means "solver value
+# one", not the number 1. Stripped out before any number extraction so
+# citing a tag (exactly what the pipeline's own prompts ask for) can never
+# be misread as the derivation stating a numeric result.
+_CITATION_TAG_RE = re.compile(r"\[[A-Za-z]+:?[\w\-]*\]")
+
+
+def _strip_citation_tags(text: str) -> str:
+    return _CITATION_TAG_RE.sub(" ", text)
+
 
 def check_known_result(text: str, computed: dict | None) -> CheckResult:
     """9. Known-result/reference check - cross-checks any number the
@@ -317,7 +474,7 @@ def check_known_result(text: str, computed: dict | None) -> CheckResult:
     reference = computed["result"].get(field_name)
     if reference is None or not text:
         return CheckResult("known_result", "not_applicable", "no reference value or no text to check")
-    stated = [float(m) for m in _NUMBER_RE.findall(text)]
+    stated = [float(m) for m in _NUMBER_RE.findall(_strip_citation_tags(text))]
     if not stated:
         return CheckResult("known_result", "warning",
                            "the derivation states no numeric result to cross-check "
@@ -373,7 +530,7 @@ def verify_derivation(question: str, u: dict, pack, reasoning: dict, computed: d
         check_symbol_consistency(text, pack),
         check_dimensional_consistency(text, computed),
         check_algebraic_consistency(u, symbolic),
-        check_operator_consistency(pack),
+        check_operator_consistency(text, pack),
         check_boundary_conditions(pack, computed),
         check_limiting_case(computed),
         check_classical_limit(computed),

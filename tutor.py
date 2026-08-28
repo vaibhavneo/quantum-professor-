@@ -281,10 +281,34 @@ def _score_topics(question: str) -> list:
     return scored
 
 
+# A secondary candidate's score must retain at least this fraction of the
+# TOP match's score to ride along as evidence next to it. Two topics can
+# each individually clear MIN_TOPIC_SCORE from weak, coincidental keyword
+# overlap (e.g. a hydrogen-atom question also picking up harmonic-oscillator
+# on shared words like "energy"/"state") while one is a strong domain match
+# and the other is a weak, unrelated one - the absolute floor alone can't
+# tell those apart, since it only ever looks at a candidate in isolation.
+# The primary match is never subject to this; it only prunes what's allowed
+# to accompany it.
+SECONDARY_MATCH_RATIO = 0.35
+
+
+def _apply_secondary_floor(scored: list) -> list:
+    """scored is (score, topic) pairs from _score_topics(), already sorted
+    descending. Keeps the top entry unconditionally, then drops any later
+    entry that is weak RELATIVE to the top - a strong domain match must not
+    let a merely-coincidental one ride along as if it were comparably good
+    evidence, even when both independently clear MIN_TOPIC_SCORE."""
+    if not scored:
+        return scored
+    floor = max(MIN_TOPIC_SCORE, scored[0][0] * SECONDARY_MATCH_RATIO)
+    return [scored[0]] + [(s, t) for s, t in scored[1:] if s >= floor]
+
+
 def match_topic(question: str):
     """Best curriculum topic for a question, or None. Scores by IDF-weighted
     overlap so a rare, specific term outweighs a ubiquitous one."""
-    scored = _score_topics(question)
+    scored = _apply_secondary_floor(_score_topics(question))
     if not scored:
         return None, []
     if scored[0][0] < MIN_TOPIC_SCORE:

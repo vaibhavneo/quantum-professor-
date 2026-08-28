@@ -319,6 +319,51 @@ def test_suggest_related_is_unfloored_but_matching_finds_nothing():
     assert isinstance(suggestions, list)
 
 
+# ── REGRESSION: secondary-match floor (benchmark-confirmed false secondary
+#    matching where a hydrogen-atom problem pulled in harmonic-oscillator) ──
+
+def test_match_topics_primary_is_correctly_identified_hydrogen_atom():
+    topics = qp.match_topics("What is the ground state energy of a hydrogen atom?", k=4)
+    assert topics[0].id == "hydrogen-atom"
+
+
+def test_match_topics_primary_is_correctly_identified_harmonic_oscillator():
+    topics = qp.match_topics("Derive the energy levels of the quantum harmonic oscillator.", k=4)
+    assert topics[0].id == "harmonic-oscillator"
+
+
+def test_match_topics_primary_is_correctly_identified_particle_in_a_box():
+    topics = qp.match_topics("What is the energy of an electron in the n=2 state of a 1nm box?",
+                             k=4)
+    assert topics[0].id == "particle-in-a-box"
+
+
+def test_match_topics_primary_is_correctly_identified_pauli_matrices():
+    topics = qp.match_topics("Show that the Pauli matrices satisfy sigma_x sigma_y = i sigma_z.",
+                             k=4)
+    assert topics[0].id == "spin-pauli"
+
+
+def test_match_topics_hamiltonian_mechanics_matches_no_topic_at_all():
+    # the curriculum has zero classical/Lagrangian-Hamiltonian mechanics
+    # topics - this must stay an honest gap, not get silently redirected to
+    # an adjacent quantum topic that merely shares vocabulary.
+    assert qp.match_topics("Derive Hamilton's equations from the Lagrangian.", k=4) == []
+
+
+def test_match_topics_secondary_floor_drops_weak_coincidental_overlap():
+    # a secondary candidate scoring far below the primary match (weak,
+    # coincidental keyword overlap on generic words like "energy") must not
+    # ride along just because it individually clears the absolute floor.
+    from tutor import _apply_secondary_floor, _score_topics
+    scored = _score_topics("Derive the energy levels of the quantum harmonic oscillator and "
+                           "explain their physical meaning.")
+    filtered_ids = {t.id for _s, t in _apply_secondary_floor(scored)}
+    weak_secondaries = {t.id for s, t in scored if s < scored[0][0] * 0.35}
+    assert weak_secondaries, "test premise: there should be some weak candidates to filter"
+    assert filtered_ids.isdisjoint(weak_secondaries)
+
+
 # ── Phase 3: provider-error classification wired into _call() ──────────────
 
 def test_call_wraps_402_as_provider_error():

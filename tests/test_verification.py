@@ -78,24 +78,83 @@ def test_algebraic_consistency_not_applicable_with_no_identity():
     assert v.check_algebraic_consistency({}, None).status == "not_applicable"
 
 
-# ── 4. Operator consistency (real sympy.physics.quantum-style algebra) ─────
+# ── 4. Operator consistency: verifies the CLAIM the derivation makes, not
+#    just that a keyword ("pauli"/"qubit"/"commutator") is present ─────────
 
-def test_operator_consistency_pauli_matrices_pass():
-    pack = EvidencePack(question="explain qubits and Pauli matrices")
-    r = v.check_operator_consistency(pack)
+def test_operator_consistency_correct_pauli_multiplication_passes():
+    text = "multiplying the matrices directly, sigma_x sigma_y = i*sigma_z."
+    r = v.check_operator_consistency(text, None)
     assert r.status == "pass"
-    assert "Pauli" in r.detail
+    assert "sigma_x*sigma_y" in r.detail
 
 
-def test_operator_consistency_commutator_pass():
-    pack = EvidencePack(question="what is the canonical commutation relation", concepts=["commutator"])
-    r = v.check_operator_consistency(pack)
-    assert r.status == "pass"
+def test_operator_consistency_incorrect_pauli_multiplication_missing_i_fails():
+    # scenario 2's required case: the true relation is i*sigma_z, not sigma_z -
+    # dropping the i is a deliberately incorrect derivation this must catch.
+    text = "multiplying the matrices directly, sigma_x sigma_y = sigma_z."
+    r = v.check_operator_consistency(text, None)
+    assert r.status == "fail"
+    assert r.correction is not None
 
 
-def test_operator_consistency_not_applicable_otherwise():
-    r = v.check_operator_consistency(EvidencePack(question="what is a photon"))
+def test_operator_consistency_unrelated_prose_mentioning_pauli_is_not_applicable():
+    # a mention, not a claim - must not be enough to trigger a pass on its own.
+    text = "Wolfgang Pauli made many foundational contributions to quantum theory."
+    r = v.check_operator_consistency(text, None)
     assert r.status == "not_applicable"
+
+
+def test_operator_consistency_prose_mentioning_qubits_without_a_claim_is_not_applicable():
+    text = "A qubit can exist in a superposition of the 0 and 1 states."
+    r = v.check_operator_consistency(text, None)
+    assert r.status == "not_applicable"
+
+
+def test_operator_consistency_correct_canonical_commutator_passes():
+    r = v.check_operator_consistency("direct computation gives [x,p] = i*hbar.", None)
+    assert r.status == "pass"
+
+
+def test_operator_consistency_finds_the_real_claim_past_an_earlier_restated_definition():
+    # a derivation restating "[x,p] = xp - px" (the DEFINITION, not a value)
+    # before the actual claimed value later in the text must not give up on
+    # the first, unparseable match - it should keep looking.
+    text = "- [x,p] = xp - px\n- evaluating on a test function gives [x,p] = i*hbar"
+    r = v.check_operator_consistency(text, None)
+    assert r.status == "pass"
+
+
+def test_operator_consistency_commutator_missing_i_fails():
+    r = v.check_operator_consistency("direct computation gives [x,p] = hbar.", None)
+    assert r.status == "fail"
+    assert r.correction is not None
+
+
+def test_operator_consistency_commutator_wrong_coefficient_fails():
+    r = v.check_operator_consistency("direct computation gives [x,p] = 2*i*hbar.", None)
+    assert r.status == "fail"
+
+
+def test_operator_consistency_unparseable_pauli_claim_is_honestly_not_applicable():
+    # a real claim shape is present, but the right-hand side isn't one of
+    # the bounded forms this can safely evaluate - refuse, don't guess.
+    text = "sigma_x sigma_y = some complicated tensor expression we won't write out"
+    r = v.check_operator_consistency(text, None)
+    assert r.status == "not_applicable"
+    assert "could not safely parse" in r.detail
+
+
+def test_operator_consistency_not_applicable_when_nothing_relevant_at_all():
+    r = v.check_operator_consistency("", EvidencePack(question="what is a photon"))
+    assert r.status == "not_applicable"
+
+
+def test_verify_derivation_incorrect_pauli_claim_does_not_reach_verified_mathematically():
+    # the exact benchmark-confirmed false positive this fix closes.
+    reasoning = {"derivation_plan": "multiplying directly, sigma_x sigma_y = sigma_z.", "text": "x"}
+    result = v.verify_derivation("Pauli algebra", {}, None, reasoning, None, None)
+    assert result.status != "verified_mathematically"
+    assert any(f["check"] == "operator_consistency" for f in result.failed)
 
 
 # ── 5. Boundary/initial-condition consistency ───────────────────────────────
@@ -146,12 +205,102 @@ def test_conservation_law_passes_for_shm_via_topic_id():
     assert "dE/dt = 0" in r.detail
 
 
-def test_conservation_law_passes_for_hamiltonian_mechanics_question_text():
+def test_conservation_law_passes_for_hamiltonian_mechanics_conservation_claim_text():
     # classical/Hamiltonian mechanics has NO curriculum topic at all - the
-    # check must still fire from the raw question text, not just topic ids.
-    pack = EvidencePack(question="Explain Hamiltonian mechanics for a simple harmonic oscillator")
+    # check must still fire from the raw question text, not just topic ids -
+    # but ONLY when the text actually names the SHM system AND claims
+    # conservation, not from "Hamiltonian mechanics" alone (see the
+    # regression test below for that distinction).
+    pack = EvidencePack(question="Use Hamiltonian mechanics to show energy is conserved for a "
+                                 "simple harmonic oscillator")
     r = v.check_conservation_law(pack)
     assert r.status == "pass"
+
+
+def test_conservation_law_does_not_fire_on_hamiltonian_mechanics_wording_alone():
+    # REGRESSION (benchmark-confirmed false positive): "Hamiltonian
+    # mechanics" appearing in a question is not itself a conservation-law
+    # claim - naming the formalism is not the same as claiming something is
+    # conserved. Previously this fired and unconditionally verified a fixed,
+    # unrelated SHM fact regardless of what was actually asked.
+    pack = EvidencePack(question="Derive Hamilton's equations from the Lagrangian")
+    r = v.check_conservation_law(pack)
+    assert r.status == "not_applicable"
+
+
+def test_conservation_law_does_not_fire_on_lagrangian_mechanics_wording_alone():
+    pack = EvidencePack(question="Derive the Euler-Lagrange equation from the principle of "
+                                 "least action")
+    r = v.check_conservation_law(pack)
+    assert r.status == "not_applicable"
+
+
+def test_conservation_law_does_not_fire_for_unrelated_quantum_mechanics_conservation_claim():
+    # "conserved" IS present, but the system is not the SHM this check
+    # verifies - a real conservation claim about a DIFFERENT system must not
+    # be answered by the fixed SHM computation.
+    pack = EvidencePack(question="Show that momentum is conserved in an isolated quantum system")
+    r = v.check_conservation_law(pack)
+    assert r.status == "not_applicable"
+
+
+def test_conservation_law_does_not_fire_for_unrelated_problem_merely_mentioning_hamiltonian():
+    pack = EvidencePack(question="What is the physical meaning of the Hamiltonian operator in "
+                                 "quantum mechanics?")
+    r = v.check_conservation_law(pack)
+    assert r.status == "not_applicable"
+
+
+def test_conservation_law_primary_topic_match_is_sufficient_even_without_conservation_wording():
+    # the OTHER legitimate trigger: a genuine primary curriculum match for
+    # harmonic-oscillator is enough on its own, matching
+    # test_conservation_law_passes_for_shm_via_topic_id above.
+    pack = EvidencePack(question="q", topics=[_topic("harmonic-oscillator")])
+    r = v.check_conservation_law(pack)
+    assert r.status == "pass"
+
+
+# ── REGRESSION: a SECONDARY (non-primary) topic match must not be able to
+#    inflate verification confidence - the benchmark-confirmed case where a
+#    hydrogen-atom question pulled in harmonic-oscillator as evidence ──────
+
+def test_conservation_law_ignores_a_secondary_non_primary_harmonic_oscillator_match():
+    pack = EvidencePack(question="What is the ground state energy of a hydrogen atom?",
+                        topics=[_topic("hydrogen-atom"), _topic("harmonic-oscillator")])
+    r = v.check_conservation_law(pack)
+    assert r.status == "not_applicable"
+
+
+def test_boundary_conditions_ignores_a_secondary_non_primary_particle_in_a_box_match():
+    pack = EvidencePack(question="What is the ground state energy of a hydrogen atom?",
+                        topics=[_topic("hydrogen-atom"), _topic("particle-in-a-box")])
+    computed = {"ran": True, "result": {"topic": "hydrogen-atom"}}
+    r = v.check_boundary_conditions(pack, computed)
+    assert r.status == "not_applicable"
+
+
+def test_verify_derivation_wrong_hydrogen_answer_now_lands_on_failed_not_masked_by_secondary_match():
+    # end-to-end: with the spurious secondary match correctly ignored, a
+    # wrong hydrogen-atom numeric claim with nothing else to corroborate it
+    # lands on the honest, decisive FAILED - rather than partially_verified
+    # propped up by an unrelated topic's fixed conservation check.
+    pack = EvidencePack(question="What is the ground state energy of a hydrogen atom?",
+                        topics=[_topic("hydrogen-atom"), _topic("harmonic-oscillator")])
+    computed = {"ran": True, "result": physics.solve("hydrogen-atom", n=1)}
+    reasoning = {"derivation_plan": "the ground state energy comes out to about -1.2", "text": "x"}
+    result = v.verify_derivation("What is the ground state energy of a hydrogen atom?", {}, pack,
+                                 reasoning, computed, None)
+    assert result.status == "failed"
+
+
+def test_verify_derivation_hamiltons_equations_no_longer_falsely_verified():
+    # end-to-end: the exact benchmark scenario, through the orchestrator.
+    reasoning = {"derivation_plan": "Legendre transform gives H, then Hamilton's equations follow.",
+                "text": "x"}
+    result = v.verify_derivation("Derive Hamilton's equations from the Lagrangian", {}, None,
+                                 reasoning, None, None)
+    assert result.status == "not_independently_verified"
+    assert not any(p["check"] == "conservation_law" for p in result.passed)
 
 
 def test_conservation_law_not_applicable_otherwise():
@@ -178,6 +327,55 @@ def test_known_result_fails_on_deliberately_incorrect_derivation():
 
 def test_known_result_not_applicable_without_a_solver_run():
     assert v.check_known_result("some text", None).status == "not_applicable"
+
+
+# ── REGRESSION: citation tags must never be read as numeric claims ─────────
+
+def test_known_result_ignores_the_digit_in_a_T1_citation_tag():
+    # the exact benchmark-confirmed bug: citing [T1] - exactly what the
+    # system's own prompt instructs - must not make known_result read the
+    # tag's own digit as a stated (and therefore "wrong") result.
+    computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
+    text = "the result is given by the solver [T1], referred to in words, not restated"
+    r = v.check_known_result(text, computed)
+    assert r.status != "fail"
+    assert r.status == "warning"  # honestly: no real number was stated to check
+
+
+def test_known_result_still_catches_a_real_wrong_number_alongside_a_tag():
+    # stripping the tag must not disable real detection of an actually wrong
+    # number stated elsewhere in the same sentence.
+    computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
+    text = "citing [T1], the energy works out to about 5.0 eV"
+    r = v.check_known_result(text, computed)
+    assert r.status == "fail"
+
+
+def test_known_result_strips_all_citation_tag_shapes_not_just_T1():
+    computed = {"ran": True, "result": physics.solve("harmonic-oscillator", n=0, omega=1e14)}
+    text = "per [C:harmonic-oscillator] and [S12] and [A3] and [X1], the zero-point energy is 0.032911 eV"
+    r = v.check_known_result(text, computed)
+    assert r.status == "pass"
+
+
+def test_verify_derivation_correctly_cited_answer_with_T1_is_not_downgraded():
+    # end-to-end: a textbook-correct reply that cites [T1] and defers to it
+    # in words must reach verified_mathematically, not be penalized for
+    # doing exactly what it was asked to do. Uses a real pack with the T1
+    # mathematical object build_evidence_pack() actually adds whenever a
+    # solver ran, matching the real pipeline rather than an artificial
+    # pack=None that would separately flag [T1] as an unoffered citation.
+    computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
+    pack = EvidencePack(question="q", mathematical_objects=[
+        {"tag": "T1", "name": "solver result", "expression": "", "kind": "computed_result",
+        "topic_id": None}])
+    reasoning = {"derivation_plan": "apply the particle-in-a-box energy formula for this "
+                                    "configuration [T1] - the solver's computed result is the "
+                                    "answer, referred to in words, not restated", "text": "x"}
+    result = v.verify_derivation("energy of n=2 electron in a 1nm box", {}, pack, reasoning,
+                                 computed, None)
+    assert result.status == "verified_mathematically"
+    assert not result.failed
 
 
 # ── 10. Assumption/approximation inventory ──────────────────────────────────

@@ -39,8 +39,8 @@ try:
     from .model_gateway import get_gateway
     from .verification import verify_derivation
     from .tutor import (DEPTH_DIRECTIVE, MODE_DIRECTIVE, MODEL_DEEP, MODEL_FAST,
-                        MIN_TOPIC_SCORE, _api_key, _familiarity, _score_topics,
-                        compute_for, record_visit, retrieve_evidence,
+                        MIN_TOPIC_SCORE, _api_key, _apply_secondary_floor, _familiarity,
+                        _score_topics, compute_for, record_visit, retrieve_evidence,
                         suggest_related)
 except ImportError:
     import research as R
@@ -50,8 +50,8 @@ except ImportError:
     from model_gateway import get_gateway
     from verification import verify_derivation
     from tutor import (DEPTH_DIRECTIVE, MODE_DIRECTIVE, MODEL_DEEP, MODEL_FAST,
-                       MIN_TOPIC_SCORE, _api_key, _familiarity, _score_topics,
-                       compute_for, record_visit, retrieve_evidence,
+                       MIN_TOPIC_SCORE, _api_key, _apply_secondary_floor, _familiarity,
+                       _score_topics, compute_for, record_visit, retrieve_evidence,
                        suggest_related)
 
 STAGE_PLAN = {
@@ -152,8 +152,14 @@ def match_topics(question: str, k: int = 4):
     floor at all on positions 2-4), which is how a topic that only shares
     one coincidental word with the question could still ride along into the
     evidence a real question never asked for.
+
+    Also applies the secondary-match ratio floor: a candidate beyond the top
+    one must retain a meaningful fraction of the top match's own score, so a
+    strong primary match (e.g. hydrogen-atom) can't drag in a same-ballpark-
+    but-unrelated topic (e.g. harmonic-oscillator) just because both cleared
+    the same absolute floor independently.
     """
-    scored = _score_topics(question)
+    scored = _apply_secondary_floor(_score_topics(question))
     return [t for score, t in scored[:k] if score >= MIN_TOPIC_SCORE]
 
 
