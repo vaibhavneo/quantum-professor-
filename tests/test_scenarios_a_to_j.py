@@ -99,10 +99,15 @@ def test_B_three_way_mechanics_comparison(monkeypatch):
     assert u["comparison_targets"] == ["Newtonian mechanics", "Lagrangian mechanics",
                                        "Hamiltonian mechanics"]
     assert len(payload["sides"]) == 3
-    # none of the three exist in this quantum-mechanics curriculum - every
-    # side must say so honestly rather than any one of them borrowing a
-    # quantum topic to look answered.
-    assert all(not s["covered_by_curriculum"] for s in payload["sides"])
+    # Updated for the retrieval phase: the curriculum now has a real
+    # Lagrangian/Hamiltonian mechanics topic, so those two sides are
+    # genuinely covered - Newtonian mechanics specifically still has no
+    # dedicated topic and must keep reporting that honestly, rather than
+    # borrowing the Lagrangian/Hamiltonian topic to look answered.
+    by_label = {s["label"]: s for s in payload["sides"]}
+    assert by_label["Newtonian mechanics"]["covered_by_curriculum"] is False
+    assert by_label["Lagrangian mechanics"]["covered_by_curriculum"] is True
+    assert by_label["Hamiltonian mechanics"]["covered_by_curriculum"] is True
     assert payload["answer_mode"] in ("offline", "degraded", "insufficient_evidence")
     prose_l = payload["prose"].lower()
     for label in ("newtonian mechanics", "lagrangian mechanics", "hamiltonian mechanics"):

@@ -70,9 +70,10 @@ PROBLEMS: list[Problem] = [
         question="What is the physical meaning of wavefunction collapse?",
         derivation_reply=_concept("measurement selects one eigenstate from the superposition"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="GAP: matches zero curriculum topics despite being a core QM concept the "
-             "curriculum's measurement-postulates topic clearly covers.",
+        expect_topics_matched=True,
+        notes="FIXED (retrieval phase): measurement-postulates now has 'wavefunction collapse "
+             "upon measurement' as an explicit key_concept, so this correctly matches the "
+             "topic that already covered this idea in prose.",
     ),
     Problem(
         id="concept-qubit-vs-bit", category="conceptual", domain="quantum-computing",
@@ -80,14 +81,14 @@ PROBLEMS: list[Problem] = [
         derivation_reply=_concept("a qubit can be in a superposition of 0 and 1, a classical "
                                   "bit cannot"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="GAP (still present, unrelated to the fixes): the most basic possible "
-             "quantum-computing question matches zero curriculum topics despite "
-             "quantum-information existing - a retrieval gap, not a verification one. "
-             "FIXED separately: operator_consistency previously fired purely because 'qubit' "
-             "appeared in the question text and passed a fixed Pauli-algebra reference check "
-             "regardless of content; it now requires an actual parseable operator claim, so a "
-             "reply with no equation correctly reports not_independently_verified.",
+        expect_topics_matched=True,
+        notes="FIXED, both layers: (1) retrieval - quantum-information now has 'qubit vs "
+             "classical bit' as an explicit key_concept, closing what was previously a zero-match "
+             "retrieval gap. (2) verification - operator_consistency previously fired purely "
+             "because 'qubit' appeared in the question text and passed a fixed Pauli-algebra "
+             "reference check regardless of content; it now requires an actual parseable "
+             "operator claim, so a reply with no equation correctly reports "
+             "not_independently_verified.",
     ),
     Problem(
         id="concept-schrodinger-vs-heisenberg-picture", category="conceptual", domain="math-physics",
@@ -95,8 +96,12 @@ PROBLEMS: list[Problem] = [
         derivation_reply=_concept("in the Schrodinger picture states evolve and operators are "
                                   "fixed; in the Heisenberg picture it's the reverse"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="GAP: no curriculum topic covers this standard graduate-level QM distinction.",
+        expect_topics_matched=True,
+        notes="FIXED (retrieval phase, content gap): added a new curriculum topic, "
+             "schrodinger-heisenberg-pictures, covering exactly this graduate-level QM "
+             "distinction. Status stays not_independently_verified since this scripted reply "
+             "makes no citable/checkable claim - the point here is retrieval grounding, not "
+             "verification.",
     ),
     Problem(
         id="concept-symmetry-breaking", category="conceptual", domain="qft",
@@ -178,15 +183,16 @@ PROBLEMS: list[Problem] = [
             "- Hamilton's equations describe the same dynamics as the Euler-Lagrange equations, "
             "in phase space instead of configuration space"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="FIXED (the headline weakness this pass targeted): GAP (still present) - the "
-             "curriculum has zero classical/Lagrangian-Hamiltonian mechanics topics at all. "
-             "conservation_law previously fired on the word 'Lagrangian' alone and "
-             "unconditionally verified a FIXED, unrelated claim (classical SHM energy "
-             "conservation) that has nothing to do with Hamilton's equations. It now requires "
-             "the primary topic to genuinely be harmonic-oscillator, or the text to both name "
-             "SHM specifically AND claim conservation - neither holds here, so this correctly "
-             "reports not_independently_verified instead of a false 'verified'.",
+        expect_topics_matched=True,
+        notes="FIXED, both phases: (1) verification hardening - conservation_law previously "
+             "fired on the word 'Lagrangian' alone and unconditionally verified a FIXED, "
+             "unrelated claim (classical SHM energy conservation); it now requires the primary "
+             "topic to genuinely be harmonic-oscillator or explicit SHM+conservation wording, "
+             "neither of which holds here. (2) retrieval - a new curriculum topic "
+             "(lagrangian-hamiltonian-mechanics, added for this content gap) now genuinely "
+             "matches. Status stays not_independently_verified since this scripted reply doesn't "
+             "cite that topic or state anything checkable - real grounding without a checkable "
+             "claim is still honestly reported, not oversold.",
     ),
     Problem(
         id="derive-canonical-commutator", category="derivation", domain="math-physics",
@@ -199,8 +205,12 @@ PROBLEMS: list[Problem] = [
             "- the nonzero commutator [x,p] = i*hbar is the algebraic root of the uncertainty "
             "principle"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="Under the fixed, claim-parsing operator_consistency this now honestly reports "
+        expect_topics_matched=True,
+        notes="Retrieval FIXED: commutators now has 'commutator of position and momentum "
+             "operators' as an explicit key_concept, closing what was previously a zero-match "
+             "gap (it primary-matches commutators, with uncertainty-principle as a related "
+             "secondary). Verification status is unaffected by that - under the fixed, "
+             "claim-parsing operator_consistency this now honestly reports "
              "not_independently_verified rather than the old keyword-triggered false pass: the "
              "actual '[x,p] = i*hbar' restatement lands in the PHYSICAL INTERPRETATION half of "
              "the reply, which verify_derivation() never sees (only derivation_plan is checked, "
@@ -275,9 +285,11 @@ PROBLEMS: list[Problem] = [
             "- x and p are incompatible observables and cannot be simultaneously diagonalized"),
         expected_status=("verified_mathematically",),
         targeted_check="operator_consistency",
-        expect_topics_matched=False,
-        notes="Same retrieval gap as derive-canonical-commutator, same text-triggered "
-             "verification success.",
+        expect_topics_matched=True,
+        notes="Retrieval FIXED (same as derive-canonical-commutator, via the same new "
+             "commutators key_concept). Verification already succeeded here via text-parsing "
+             "operator_consistency (this reply restates '[x,p] = i*hbar' cleanly within the "
+             "Derivation Plan itself, unlike derive-canonical-commutator's awkward phrasing).",
     ),
     Problem(
         id="operator-pauli-algebra-correct", category="operator_eigenvalue", domain="quantum-computing",
@@ -355,9 +367,13 @@ PROBLEMS: list[Problem] = [
             "PHYSICAL INTERPRETATION\n"
             "- this is the red line at the heart of the visible hydrogen spectrum"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="GAP: does not match bohr-model despite naming the exact transition it teaches - "
-             "the hydrogen-transition solver never gets a chance to run.",
+        expect_topics_matched=True,
+        notes="Retrieval PARTIALLY FIXED: bohr-model now has 'Balmer series transition "
+             "wavelengths' as an explicit key_concept, so this correctly matches the topic. "
+             "RESIDUAL GAP: the hydrogen-transition solver's extractor requires the literal "
+             "word 'from' ('from n=3 to n=2') - 'n=3 to n=2' without 'from' still doesn't "
+             "trigger it, so the solver still doesn't run for this exact phrasing. Retrieval "
+             "grounding and solver triggering are two separate mechanisms.",
     ),
     Problem(
         id="calc-uncertainty-min-momentum", category="multi_step", domain="quantum-mechanics",
@@ -370,9 +386,16 @@ PROBLEMS: list[Problem] = [
             "PHYSICAL INTERPRETATION\n"
             "- tighter confinement in position forces a larger momentum uncertainty"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="GAP: scientific notation ('1e-10 m') is not recognized by retrieval/extraction "
-             "even though the uncertainty-principle solver exists and could have run.",
+        expect_topics_matched=True,
+        expect_solver_ran=True,
+        notes="FULLY FIXED: the numeric extractor's regex now accepts scientific notation "
+             "('1e-10 m'), and uncertainty-principle's key_concepts now include plain "
+             "'position'/'momentum'/'minimum' tokens (previously only a hyphenated "
+             "'position-momentum uncertainty' phrase, which doesn't tokenize the same as the "
+             "separate words) so it wins the match over commutators, which shares 'uncertainty'. "
+             "The solver now genuinely runs. Status stays not_independently_verified because "
+             "this reply states no number to check known_result against - real computed "
+             "evidence exists, but nothing in the text makes a checkable numeric claim.",
     ),
 
     # ── 5. Classical-limit problems ──────────────────────────────────────────
@@ -415,12 +438,13 @@ PROBLEMS: list[Problem] = [
                                   "limit of large quantum numbers"),
         expected_status=("not_independently_verified",),
         expect_topics_matched=True,
-        notes="FIXED (same pattern as derive-hamiltons-equations): the phrase 'classical "
-             "mechanics' previously triggered conservation_law to unconditionally verify a "
-             "fixed, unrelated SHM fact. It now requires the primary topic to genuinely be "
-             "harmonic-oscillator, or the text to name SHM specifically alongside a conservation "
-             "claim - neither holds for a question about the correspondence principle, so this "
-             "correctly reports not_independently_verified.",
+        notes="FIXED, both phases: (1) verification - the phrase 'classical mechanics' "
+             "previously triggered conservation_law to unconditionally verify a fixed, unrelated "
+             "SHM fact; it now requires the primary topic to genuinely be harmonic-oscillator or "
+             "explicit SHM+conservation wording, neither of which holds here. (2) retrieval - "
+             "this now primary-matches the new ehrenfest-correspondence-principle topic (added "
+             "for a related content gap) - a genuine, precise match, replacing the previous "
+             "loosely-related density-matrix/quantum-statistics matches.",
     ),
     Problem(
         id="limit-fermi-dirac-to-boltzmann", category="classical_limit",
@@ -451,10 +475,12 @@ PROBLEMS: list[Problem] = [
             "- expectation values obey classical equations of motion"),
         expected_status=("not_independently_verified",),
         expect_topics_matched=True,
-        notes="match_topics() returns quantum-statistics for this classical-mechanics question "
-             "(likely shared vocabulary like 'classical'/'quantum'/'theorem') - a loosely "
-             "related match, not a real one; there is still no genuine classical-mechanics "
-             "curriculum coverage, so verification correctly finds nothing to check regardless.",
+        notes="FIXED (content gap, then genuinely improved): previously matched "
+             "quantum-statistics only loosely (shared vocabulary, not a real relationship). Now "
+             "matches the new ehrenfest-correspondence-principle topic (added for this content "
+             "gap) precisely - a real, dedicated match rather than a coincidental one. Status "
+             "stays not_independently_verified since this scripted reply cites no tag and states "
+             "nothing checkable.",
     ),
 
     # ── 6. Conservation-law problems ─────────────────────────────────────────
@@ -531,8 +557,9 @@ PROBLEMS: list[Problem] = [
         derivation_reply=_concept("a register of n qubits in superposition represents 2^n "
                                   "basis states at once"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="GAP: another basic quantum-computing concept with zero curriculum topic match.",
+        expect_topics_matched=True,
+        notes="FIXED (retrieval phase): quantum-information now has 'superposition and quantum "
+             "parallelism' as an explicit key_concept.",
     ),
     Problem(
         id="qc-bloch-sphere", category="quantum_computing", domain="quantum-computing",
@@ -540,10 +567,11 @@ PROBLEMS: list[Problem] = [
         derivation_reply=_concept("any single-qubit pure state maps to a point on the unit "
                                   "sphere"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="FIXED, same as concept-qubit-vs-bit: 'qubit' in the question text alone no longer "
-             "triggers a pass with no actual claim to verify. The zero-curriculum-match gap is "
-             "unrelated and remains.",
+        expect_topics_matched=True,
+        notes="FIXED, both layers, same pattern as concept-qubit-vs-bit: retrieval now matches "
+             "via quantum-information's new 'Bloch sphere representation' key_concept, and "
+             "operator_consistency no longer passes from the bare word 'qubit' with no actual "
+             "claim to verify.",
     ),
     Problem(
         id="qc-hadamard-involution", category="quantum_computing", domain="quantum-computing",
@@ -555,10 +583,12 @@ PROBLEMS: list[Problem] = [
             "PHYSICAL INTERPRETATION\n"
             "- H is its own inverse (an involution), so applying it twice is a no-op"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
-        notes="GAP (compound): no topic match AND operator_consistency only covers the "
-             "canonical commutator and Pauli algebra specifically - Hadamard-gate algebra has no "
-             "check even if it were matched.",
+        expect_topics_matched=True,
+        notes="Retrieval FIXED: quantum-information now has 'Hadamard gate' as an explicit "
+             "key_concept. RESIDUAL GAP: operator_consistency only parses Pauli-product and "
+             "canonical-commutator claims specifically - Hadamard-gate algebra has no check "
+             "even now that the topic matches, so this correctly stays honest rather than "
+             "guessing at a claim it can't verify.",
     ),
     Problem(
         id="qc-entanglement-no-signaling", category="quantum_computing", domain="quantum-computing",
@@ -638,8 +668,13 @@ PROBLEMS: list[Problem] = [
         is_wrong=True,
         expected_status=("partially_verified", "failed"),
         targeted_check="algebraic_consistency",
+        expect_topics_matched=False,
         notes="DETECTED: real sympy simplification of sin(theta)**2+cos(theta)**2-2 is nonzero, "
-             "so algebraic_consistency fails - a genuine false mathematical identity is caught.",
+             "so algebraic_consistency fails - a genuine false mathematical identity is caught. "
+             "The only remaining unmatched question in the benchmark by design, not a gap: a "
+             "generic trigonometric identity check has no dedicated curriculum topic to match, "
+             "and doesn't need one - check_algebraic_consistency works directly from the "
+             "identity string, independent of topic retrieval.",
     ),
     Problem(
         id="wrong-fabricated-citation", category="incorrect_derivation", domain="quantum-mechanics",

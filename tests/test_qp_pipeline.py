@@ -344,11 +344,21 @@ def test_match_topics_primary_is_correctly_identified_pauli_matrices():
     assert topics[0].id == "spin-pauli"
 
 
-def test_match_topics_hamiltonian_mechanics_matches_no_topic_at_all():
-    # the curriculum has zero classical/Lagrangian-Hamiltonian mechanics
-    # topics - this must stay an honest gap, not get silently redirected to
-    # an adjacent quantum topic that merely shares vocabulary.
-    assert qp.match_topics("Derive Hamilton's equations from the Lagrangian.", k=4) == []
+def test_match_topics_lagrangian_hamiltonian_mechanics_now_covered():
+    # updated for the retrieval phase: the curriculum now has a real
+    # Lagrangian/Hamiltonian mechanics topic (closing what was previously an
+    # honest content gap), so this correctly matches it rather than staying
+    # empty or getting redirected to an unrelated quantum topic.
+    topics = qp.match_topics("Derive Hamilton's equations from the Lagrangian.", k=4)
+    assert [t.id for t in topics] == ["lagrangian-hamiltonian-mechanics"]
+
+
+def test_match_topics_bare_classical_mechanics_still_matches_nothing():
+    # the new Lagrangian/Hamiltonian topic must not overcorrect into matching
+    # every "classical mechanics" phrase - "classical mechanics" alone, with
+    # no Newtonian/Lagrangian/Hamiltonian-specific vocabulary, still has
+    # nothing genuinely dedicated to it and must stay an honest gap.
+    assert qp.match_topics("classical mechanics", k=4) == []
 
 
 def test_match_topics_secondary_floor_drops_weak_coincidental_overlap():
@@ -594,15 +604,18 @@ def test_gather_comparison_sides_classical_vs_quantum_mechanics(monkeypatch):
     assert by_side_kept["quantum mechanics"][0]["linked_topics"]
 
 
-def test_gather_comparison_sides_newtonian_vs_lagrangian_both_uncovered(monkeypatch):
-    # scenario B - neither classical-technique side has curriculum coverage
+def test_gather_comparison_sides_newtonian_uncovered_lagrangian_now_covered(monkeypatch):
+    # scenario B, updated: the curriculum now has a real Lagrangian/Hamiltonian
+    # mechanics topic (added for the retrieval phase's content gaps), so this
+    # side is honestly covered - Newtonian mechanics specifically still has
+    # no dedicated topic and must keep reporting that honestly.
     monkeypatch.setattr(qp, "retrieve_evidence", _fake_retrieve_evidence({}))
     book_ev, topics, sides = qp.gather_comparison_sides(
         qp.extract_comparison_targets("Newtonian vs Lagrangian mechanics"))
-    assert all(not s["covered_by_curriculum"] for s in sides)
-    assert topics == []
-    assert book_ev["kept"] == []
-    assert book_ev["evidence_strength"] == "none"
+    by_label = {s["label"]: s for s in sides}
+    assert by_label["Newtonian mechanics"]["covered_by_curriculum"] is False
+    assert by_label["Lagrangian mechanics"]["covered_by_curriculum"] is True
+    assert any(t.id == "lagrangian-hamiltonian-mechanics" for t in topics)
 
 
 def test_gather_comparison_sides_tags_renumbered_without_collision(monkeypatch):

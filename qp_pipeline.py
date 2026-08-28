@@ -303,6 +303,7 @@ _DOMAIN_OVERRIDES = {
     "astrophysics-stars": "astrophysics", "cosmology": "astrophysics",
     "quantum-information": "quantum-computing", "decoherence": "quantum-computing",
     "quantum-optics": "quantum-computing",
+    "lagrangian-hamiltonian-mechanics": "classical-mechanics",
 }
 
 

@@ -349,11 +349,16 @@ def _length_nm(t: str):
     return None
 
 
+_SCI_NUM = r"(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)"
+
+
 def _delta_x_m(t: str):
-    for pat, mul in ((r"(\d+(?:\.\d+)?)\s*nm\b", 1e-9),
-                     (r"(\d+(?:\.\d+)?)\s*pm\b", 1e-12),
-                     (r"(\d+(?:\.\d+)?)\s*(?:å|angstroms?)\b", 1e-10),
-                     (r"(\d+(?:\.\d+)?)\s*m\b(?!\w)", 1.0)):
+    # scientific notation ("1e-10 m") must parse the same as a plain decimal -
+    # a question stating its confinement length that way is exactly as valid.
+    for pat, mul in ((_SCI_NUM + r"\s*nm\b", 1e-9),
+                     (_SCI_NUM + r"\s*pm\b", 1e-12),
+                     (_SCI_NUM + r"\s*(?:å|angstroms?)\b", 1e-10),
+                     (_SCI_NUM + r"\s*m\b(?!\w)", 1.0)):
         m = re.search(pat, t, re.I)
         if m:
             return float(m.group(1)) * mul

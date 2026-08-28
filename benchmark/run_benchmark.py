@@ -129,17 +129,26 @@ def summarize(rows: list[dict]) -> dict:
     topic_checked = [r for r in rows if r["problem"].expect_topics_matched is not None]
     topic_as_expected = [r for r in topic_checked
                          if bool(r["result"].get("topics_matched")) == r["problem"].expect_topics_matched]
-    real_topic_match_rate = sum(1 for r in rows if r["result"].get("topics_matched")) / total
+    matched_rows = [r for r in rows if r["result"].get("topics_matched")]
+    unmatched_rows = [r for r in rows if not r["result"].get("topics_matched")]
+    real_topic_match_rate = len(matched_rows) / total
+
+    solver_checked = [r for r in rows if r["problem"].expect_solver_ran is not None]
+    solver_as_expected = [r for r in solver_checked
+                          if bool(r["result"].get("solver_ran")) == r["problem"].expect_solver_ran]
 
     call_counts = {r["result"].get("num_llm_calls") for r in rows if not r["result"]["error"]}
 
-    by_category = defaultdict(lambda: {"total": 0, "pass": 0})
-    by_domain = defaultdict(lambda: {"total": 0, "pass": 0})
+    by_category = defaultdict(lambda: {"total": 0, "pass": 0, "topic_matched": 0})
+    by_domain = defaultdict(lambda: {"total": 0, "pass": 0, "topic_matched": 0})
     for r in rows:
+        matched = bool(r["result"].get("topics_matched"))
         by_category[r["problem"].category]["total"] += 1
         by_category[r["problem"].category]["pass"] += int(r["score"]["pass"])
+        by_category[r["problem"].category]["topic_matched"] += int(matched)
         by_domain[r["problem"].domain]["total"] += 1
         by_domain[r["problem"].domain]["pass"] += int(r["score"]["pass"])
+        by_domain[r["problem"].domain]["topic_matched"] += int(matched)
 
     return {
         "total": total, "crashed": crashed,
@@ -151,9 +160,14 @@ def summarize(rows: list[dict]) -> dict:
         "false_positive_ids": [r["problem"].id for r in false_positives],
         "false_negative_count": len(false_negatives),
         "false_negative_ids": [r["problem"].id for r in false_negatives],
+        # ── retrieval-specific metrics ──────────────────────────────────────
         "real_topic_match_rate": real_topic_match_rate,
+        "matched_count": len(matched_rows), "unmatched_count": len(unmatched_rows),
+        "unmatched_ids": [r["problem"].id for r in unmatched_rows],
         "topic_expectation_accuracy": (len(topic_as_expected) / len(topic_checked)
                                        if topic_checked else None),
+        "solver_expectation_accuracy": (len(solver_as_expected) / len(solver_checked)
+                                        if solver_checked else None),
         "distinct_llm_call_counts_seen": sorted(c for c in call_counts if c is not None),
         "by_category": dict(by_category),
         "by_domain": dict(by_domain),
@@ -189,14 +203,21 @@ def main():
          f"{agg['false_positive_count']} {agg['false_positive_ids']}")
     print(f"False negatives (correct derivation reported failed):              "
          f"{agg['false_negative_count']} {agg['false_negative_ids']}")
-    print(f"Real topic-match rate (retrieval coverage): {agg['real_topic_match_rate']:.0%}")
+    print(f"\n-- Retrieval metrics --")
+    print(f"Topic-match rate:        {agg['matched_count']}/{agg['total']} "
+         f"({agg['real_topic_match_rate']:.0%})")
+    print(f"Unmatched questions:     {agg['unmatched_count']} {agg['unmatched_ids']}")
+    if agg["topic_expectation_accuracy"] is not None:
+        print(f"Topic-match expectation accuracy: {agg['topic_expectation_accuracy']:.0%}")
+    if agg["solver_expectation_accuracy"] is not None:
+        print(f"Solver-triggering expectation accuracy: {agg['solver_expectation_accuracy']:.0%}")
     print(f"LLM calls per problem (should be a single value, 5): {agg['distinct_llm_call_counts_seen']}")
-    print("\nBy category:")
+    print("\nBy category (pass / topic-matched / total):")
     for cat, s in sorted(agg["by_category"].items()):
-        print(f"  {cat:24s} {s['pass']}/{s['total']}")
-    print("\nBy domain:")
+        print(f"  {cat:24s} {s['pass']}/{s['topic_matched']}/{s['total']}")
+    print("\nBy domain (pass / topic-matched / total):")
     for dom, s in sorted(agg["by_domain"].items()):
-        print(f"  {dom:28s} {s['pass']}/{s['total']}")
+        print(f"  {dom:28s} {s['pass']}/{s['topic_matched']}/{s['total']}")
 
     if args.json:
         serializable = {
