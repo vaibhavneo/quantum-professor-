@@ -328,15 +328,25 @@ def suggest_related(question: str, k: int = 3) -> list:
 _ORD = {"first": 2, "second": 3, "third": 4, "fourth": 5, "fifth": 6}
 
 
-def _level_n(t: str):
+def _level_n(t: str, ground_state_n: int = 1):
+    """The quantum number named or implied by the question. "ground state" is
+    NOT a universal n=1 - the particle-in-a-box and hydrogen-atom ground
+    state conventionally is, but the harmonic oscillator's is n=0. Callers
+    for a system whose ground state isn't n=1 pass ground_state_n explicitly;
+    the default preserves this function's original behavior exactly. The
+    "first/second/... excited state" step above the ground state is the same
+    physical offset regardless of where the ground state itself sits, so
+    only the base shifts - _ORD's own values stay untouched, calibrated for
+    the ground_state_n=1 case they were always used for.
+    """
     t = t.lower()
     m = re.search(r"\bn\s*=\s*(\d+)\b", t) or re.search(r"\blevel\s+(\d+)\b", t)
     if m:
         return int(m.group(1))
-    if "ground state" in t:
-        return 1
-    m = re.search(r"\b(first|second|third|fourth|fifth)\s+excited state\b", t)
-    return _ORD[m.group(1)] if m else None
+    if re.search(r"\bground[\s-]state\b", t):
+        return ground_state_n
+    m = re.search(r"\b(first|second|third|fourth|fifth)[\s-]excited[\s-]state\b", t)
+    return _ORD[m.group(1)] + (ground_state_n - 1) if m else None
 
 
 def _length_nm(t: str):
@@ -381,7 +391,7 @@ def _de_broglie(t: str):
 
 
 def _harmonic(t: str):
-    n = _level_n(t)
+    n = _level_n(t, ground_state_n=0)  # the QHO's ground state is n=0, not n=1
     m = re.search(r"(?:omega|ω)\s*=\s*(\d+(?:\.\d+)?(?:e[+-]?\d+)?)", t, re.I)
     return {"n": n, "omega": float(m.group(1))} if (n is not None and m) else None
 

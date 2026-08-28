@@ -141,3 +141,75 @@ def test_build_evidence_pack_mathematical_objects_use_unioned_sides_topics():
               "covered_by_curriculum": True}]
     pack = build_evidence_pack("q", {}, [], sides, {"kept": []}, [], {}, None, None)
     assert len(pack.mathematical_objects) == len(_topic("schrodinger-equation").key_equations)
+
+
+# ── Problem Decomposition (Givens / Unknowns / Assumptions) and Solution
+#    Strategy - the multi-step problem-solving capability. Deterministic,
+#    like Mathematical Objects: built from what the solver already extracted
+#    and computed, never invented, never an LLM call. ──────────────────────
+
+from evidence_pack import decompose_problem, solution_strategy  # noqa: E402
+
+
+def test_decompose_problem_empty_when_nothing_computed():
+    assert decompose_problem("what is a photon", {}, [], None) == \
+        {"givens": [], "unknowns": [], "assumptions": []}
+
+
+def test_decompose_problem_givens_come_from_the_solvers_own_extracted_inputs():
+    t = _topic("particle-in-a-box")
+    computed = {"ran": True, "inputs": {"n": 1, "L": 1e-9},
+               "result": {"topic": "particle-in-a-box", "formula": "E_n = n²π²ℏ² / (2mL²)"}}
+    d = decompose_problem("ground-state energy for L=1nm", {}, [t], computed)
+    assert "n = 1" in d["givens"]
+    assert "L = 1e-09" in d["givens"]
+    assert any("Infinite Square Well" in g for g in d["givens"])
+
+
+def test_decompose_problem_unknowns_include_both_derive_and_numeric_when_both_asked():
+    t = _topic("particle-in-a-box")
+    computed = {"ran": True, "inputs": {"n": 1, "L": 1e-9},
+               "result": {"topic": "particle-in-a-box", "formula": "E_n = n²π²ℏ² / (2mL²)"}}
+    d = decompose_problem("Derive the energy eigenvalues and calculate the ground-state energy",
+                          {"intent": "derive"}, [t], computed)
+    assert "the general symbolic expression" in d["unknowns"]
+    assert "the numeric value of E_n" in d["unknowns"]
+
+
+def test_decompose_problem_assumptions_are_curated_per_solver_topic():
+    computed = {"ran": True, "inputs": {"n": 1, "L": 1e-9},
+               "result": {"topic": "particle-in-a-box", "formula": "E_n = ..."}}
+    d = decompose_problem("q", {}, [], computed)
+    assert any("infinite outside the well" in a for a in d["assumptions"])
+
+
+def test_decompose_problem_assumptions_empty_for_uncurated_topic():
+    computed = {"ran": True, "inputs": {}, "result": {"topic": "not-a-curated-solver-topic"}}
+    d = decompose_problem("q", {}, [], computed)
+    assert d["assumptions"] == []
+
+
+def test_solution_strategy_names_derive_then_substitute_when_solver_ran():
+    computed = {"ran": True, "result": {"topic": "particle-in-a-box"}}
+    s = solution_strategy({}, computed, None)
+    assert "substitute" in s.lower()
+
+
+def test_solution_strategy_names_algebraic_verification_for_symbolic_only():
+    symbolic = {"ok": True, "equal": True}
+    s = solution_strategy({}, None, symbolic)
+    assert "identity" in s.lower()
+
+
+def test_solution_strategy_falls_back_to_explain_for_pure_concept_question():
+    s = solution_strategy({"intent": "explain"}, None, None)
+    assert "explain" in s.lower()
+
+
+def test_build_evidence_pack_wires_decomposition_and_strategy_through():
+    t = _topic("particle-in-a-box")
+    computed = {"ran": True, "inputs": {"n": 1, "L": 1e-9},
+               "result": {"topic": "particle-in-a-box", "formula": "E_n = n²π²ℏ² / (2mL²)"}}
+    pack = build_evidence_pack("ground-state energy", {"intent": "derive"}, [t], None,
+                               {"kept": []}, [], {}, computed, None)
+    assert pack.givens and pack.unknowns and pack.assumptions and pack.strategy

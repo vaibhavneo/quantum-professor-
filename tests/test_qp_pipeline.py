@@ -374,6 +374,90 @@ def test_match_topics_secondary_floor_drops_weak_coincidental_overlap():
     assert filtered_ids.isdisjoint(weak_secondaries)
 
 
+# ── REGRESSION: _level_n() must recognize "ground-state" (hyphenated), not
+#    just "ground state" (space) - the exact phrasing in the user's own
+#    multi-step example question, confirmed broken before this fix (the
+#    solver never ran, so no numeric answer was ever actually computed) ────
+
+def test_level_n_recognizes_hyphenated_ground_state():
+    from tutor import _level_n
+    assert _level_n("calculate the ground-state energy for an electron") == 1
+    assert _level_n("calculate the ground state energy for an electron") == 1
+
+
+def test_level_n_recognizes_hyphenated_excited_state():
+    from tutor import _level_n
+    assert _level_n("the second-excited-state energy") == 3
+    assert _level_n("the second excited state energy") == 3
+
+
+# ── REGRESSION: ground state is NOT universally n=1 - the harmonic
+#    oscillator's ground state is n=0, while particle-in-a-box and hydrogen
+#    genuinely are n=1. Pre-existing bug discovered during the multi-step
+#    benchmark work (harmonic-oscillator "ground state" silently computed
+#    n=1, the first EXCITED state, as if it were the ground state). ────────
+
+def test_level_n_ground_state_particle_in_a_box_and_hydrogen_is_n_1():
+    # both use _level_n()'s default - unaffected by the fix, exactly as
+    # before it.
+    from tutor import _level_n
+    assert _level_n("ground state") == 1
+    assert _level_n("ground-state energy for an electron") == 1
+
+
+def test_level_n_ground_state_harmonic_oscillator_is_n_0():
+    from tutor import _level_n
+    assert _level_n("ground state", ground_state_n=0) == 0
+    assert _level_n("ground-state energy", ground_state_n=0) == 0
+
+
+def test_level_n_excited_states_unaffected_for_particle_in_a_box_and_hydrogen():
+    # requirement: preserve all existing excited-state behavior exactly.
+    from tutor import _level_n
+    assert _level_n("first excited state") == 2
+    assert _level_n("second excited state") == 3
+    assert _level_n("third excited state") == 4
+    assert _level_n("fourth excited state") == 5
+    assert _level_n("fifth excited state") == 6
+
+
+def test_level_n_excited_states_shift_correctly_for_harmonic_oscillator():
+    # the physical OFFSET above the ground state is the same regardless of
+    # where the ground state itself sits - QHO's first excited state is n=1
+    # (0 + 1), not n=2.
+    from tutor import _level_n
+    assert _level_n("first excited state", ground_state_n=0) == 1
+    assert _level_n("second excited state", ground_state_n=0) == 2
+    assert _level_n("third excited state", ground_state_n=0) == 3
+
+
+def test_level_n_explicit_n_equals_unaffected_by_ground_state_n():
+    # an explicit "n=X" is a stated fact, never inferred - ground_state_n
+    # must never override it, for any system.
+    from tutor import _level_n
+    assert _level_n("n=3") == 3
+    assert _level_n("n=3", ground_state_n=0) == 3
+    assert _level_n("n=0", ground_state_n=1) == 0
+
+
+def test_harmonic_extractor_uses_n_0_for_ground_state():
+    from tutor import _harmonic
+    assert _harmonic("the ground state, omega = 1e14") == {"n": 0, "omega": 1e14}
+    assert _harmonic("the first excited state, omega = 1e14") == {"n": 1, "omega": 1e14}
+
+
+def test_compute_for_harmonic_oscillator_ground_state_gives_the_real_zero_point_energy(monkeypatch):
+    # end-to-end: the real solver, with the real bug now fixed, computes the
+    # genuine zero-point energy (n=0), not the first excited state's energy
+    # mislabeled as the ground state.
+    q = ("Derive the energy levels of the quantum harmonic oscillator and calculate the "
+        "ground-state energy for omega = 1e14 rad/s.")
+    probe = qp.compute_for(q, "harmonic-oscillator")
+    assert probe["ran"] is True
+    assert probe["inputs"]["n"] == 0
+    assert probe["result"]["energy_eV"] == 0.032911
+
+
 # ── Phase 3: provider-error classification wired into _call() ──────────────
 
 def test_call_wraps_402_as_provider_error():
@@ -1327,6 +1411,37 @@ def test_reasoning_engine_feeds_mathematical_objects_into_the_prompt():
     assert "iH psi = E psi" in prompt
 
 
+def test_reasoning_engine_feeds_givens_unknowns_assumptions_strategy_into_the_prompt():
+    from quantum_prof.evidence_pack import EvidencePack
+    pack = EvidencePack(question="q", givens=["n = 1", "L = 1e-09"],
+                        unknowns=["the numeric value of E_n"],
+                        assumptions=["the potential is infinite outside the well"],
+                        strategy="Derive the general symbolic result, then substitute.")
+    client = FakeClient(text="DERIVATION PLAN\n- x\n\nPHYSICAL INTERPRETATION\n- y")
+    qp.reasoning_engine("q", {"restate": "q"}, [], {"kept": []}, [], None, None,
+                        _assessment([], []), "intermediate", client, qp.Budget(), pack=pack)
+    prompt = client.completions.last_prompt
+    assert "GIVEN: n = 1; L = 1e-09" in prompt
+    assert "FIND: the numeric value of E_n" in prompt
+    assert "STANDING ASSUMPTIONS: the potential is infinite outside the well" in prompt
+    assert "SOLUTION STRATEGY: Derive the general symbolic result, then substitute." in prompt
+
+
+def test_reasoning_engine_omits_given_find_section_for_a_pure_concept_question():
+    # decompose_problem() correctly returns empty lists when nothing was
+    # computed - this proves the prompt genuinely omits the section rather
+    # than sending empty/fabricated GIVEN/FIND lines for a plain concept
+    # question.
+    from quantum_prof.evidence_pack import EvidencePack
+    pack = EvidencePack(question="what is a photon")  # givens/unknowns/assumptions all default []
+    client = FakeClient(text="DERIVATION PLAN\n- x\n\nPHYSICAL INTERPRETATION\n- y")
+    qp.reasoning_engine("q", {"restate": "q"}, [], {"kept": []}, [], None, None,
+                        _assessment([], []), "intermediate", client, qp.Budget(), pack=pack)
+    prompt = client.completions.last_prompt
+    assert "GIVEN:" not in prompt and "FIND:" not in prompt
+    assert "STANDING ASSUMPTIONS:" not in prompt and "SOLUTION STRATEGY:" not in prompt
+
+
 def test_reasoning_engine_intro_depth_skip_has_the_new_empty_fields():
     result = qp.reasoning_engine("q", {"restate": "q"}, [], {"kept": []}, [], None, None,
                                  _assessment([], []), "intro", FakeClient(), qp.Budget())
@@ -1624,3 +1739,107 @@ def test_run_with_no_curriculum_match_has_empty_mathematical_objects_and_does_no
     assert payload["evidence_pack"]["mathematical_objects"] == []
     assert payload["verification"]["status"] == "not_independently_verified"
     assert payload["verification"]["passed"] == [] and payload["verification"]["failed"] == []
+
+
+# ── Multi-step problem solving: Question -> Physics Intent -> Problem
+#    Decomposition (Givens/Unknowns/Assumptions) -> Mathematical Objects ->
+#    Solution Strategy -> Derivation/Calculation -> Verification ->
+#    Interpretation -> Professor Answer. Decomposition and strategy are
+#    deterministic (evidence_pack.decompose_problem()/solution_strategy()) -
+#    this proves they reach the real reasoning prompt and that the resulting
+#    numeric answer is genuinely verified, with zero new LLM calls. ────────
+
+def test_full_chain_multi_step_particle_in_a_box_problem(monkeypatch):
+    """The user's own example: "A particle is in a one-dimensional infinite
+    potential well of width L. Derive the energy eigenvalues and calculate
+    the ground-state energy for an electron when L = 1 nm." This question
+    was confirmed BROKEN before this phase - "ground-state" (hyphenated)
+    didn't match _level_n()'s "ground state" (space) check, so compute_for()
+    never ran and no numeric answer was ever actually computed. Only the LLM
+    boundary is mocked here; match_topics(), compute_for(), decompose_problem(),
+    solution_strategy(), and verify_derivation() all run for real.
+    """
+    question = ("A particle is in a one-dimensional infinite potential well of width L. "
+               "Derive the energy eigenvalues and calculate the ground-state energy for "
+               "an electron when L = 1 nm.")
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": False, "kept": [],
+                                           "rejected": [], "scope": []})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+
+    derivation_reply = (
+        "GIVEN / FIND / ASSUMPTIONS\n"
+        "- given: the ground-state configuration of an electron in a narrow infinite well [T1]\n"
+        "- find: the general energy eigenvalue formula and the numeric ground-state energy\n"
+        "- assumptions: infinite potential walls, non-relativistic particle, strictly "
+        "one-dimensional confinement\n\n"
+        "DERIVATION PLAN\n"
+        "- start from the infinite-square-well governing equation [C:particle-in-a-box]\n"
+        "- solving the Schrodinger equation with these boundary conditions gives the "
+        "quantized energy formula\n"
+        "- substituting the given configuration, the solver's computed result [T1] is the "
+        "ground-state answer, referred to in words rather than restated\n\n"
+        "PHYSICAL INTERPRETATION\n"
+        "- confinement in a smaller well raises the energy scale\n"
+        "- the ground state has nonzero energy, unlike a classical particle at rest")
+    professor_reply = (
+        "Given an electron confined to a 1D infinite well [T1], we first derive the general "
+        "energy eigenvalue formula, then substitute to find the ground-state energy. The "
+        "result is verified mathematically.")
+    dispatch = by_system_prompt({
+        "You are the Derivation Plan & Physical Interpretation stage": derivation_reply,
+        "You are a physics tutor in the style of Feynman": professor_reply,
+    })
+    client = FakeClient(text="stub answer", dispatch=dispatch)
+
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run(question, depth="intermediate"))
+
+    payload = events[-1][1]
+    assert events[-1][0] == "done"
+    assert payload["answer_mode"] == "online"
+
+    # Physics Intent + real solver execution (previously broken for this
+    # exact phrasing - "ground-state" is hyphenated, not "ground state").
+    assert payload["computed"]["result"]["topic"] == "particle-in-a-box"
+    assert payload["computed"]["result"]["energy_eV"] == 0.37603
+
+    # Problem Decomposition: real Givens/Unknowns/Assumptions, not stubs.
+    ep = payload["evidence_pack"]
+    assert any("n = 1" in g for g in ep["givens"])
+    assert any("L = " in g for g in ep["givens"])
+    assert "the general symbolic expression" in ep["unknowns"]
+    assert any("numeric value of" in u for u in ep["unknowns"])
+    assert any("infinite outside the well" in a for a in ep["assumptions"])
+
+    # Solution Strategy: deterministic, names derive-then-substitute.
+    assert "substitute" in ep["strategy"].lower()
+
+    # These reached the REAL reasoning prompt, not just the payload dict.
+    reasoning_calls = [c for c in client.completions.calls
+                       if "You are the Derivation Plan & Physical Interpretation stage"
+                       in c["messages"][0]["content"]]
+    assert len(reasoning_calls) == 1
+    reasoning_prompt = reasoning_calls[0]["messages"][1]["content"]
+    assert "GIVEN:" in reasoning_prompt and "n = 1" in reasoning_prompt
+    assert "FIND:" in reasoning_prompt
+    assert "STANDING ASSUMPTIONS:" in reasoning_prompt
+    assert "SOLUTION STRATEGY:" in reasoning_prompt
+
+    # Verification: the numeric answer is genuinely, independently verified.
+    verification = payload["verification"]
+    assert verification["status"] == "verified_mathematically"
+    assert not verification["failed"]
+
+    # The professor prompt is told to structure with Given & Find when this
+    # applies, and receives the verification status.
+    professor_calls = [c for c in client.completions.calls
+                       if "You are a physics tutor in the style of Feynman"
+                       in c["messages"][0]["content"]]
+    professor_prompt = professor_calls[0]["messages"][1]["content"]
+    assert "Given & Find" in professor_prompt
+    assert "status=verified_mathematically" in professor_prompt
+
+    # Zero new LLM calls: still exactly the 5 pre-existing stages.
+    assert len(client.completions.calls) == 5

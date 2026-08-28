@@ -34,6 +34,10 @@ class Problem:
                                           # appear in verification["failed"] if the error is caught
     expect_topics_matched: bool | None = None   # None = not asserted
     expect_solver_ran: bool | None = None       # None = not asserted
+    expect_decomposition: bool | None = None    # None = not asserted; True = givens/unknowns/
+                                                # assumptions all expected non-empty
+    expect_unknowns_contains: tuple = ()        # substrings each expected somewhere in unknowns
+    expect_strategy_contains: str | None = None # substring expected in the strategy sentence
     notes: str = ""
 
 
@@ -318,6 +322,9 @@ PROBLEMS: list[Problem] = [
             "- doubling the quantum number quadruples the energy for this potential"),
         expected_status=("verified_mathematically",),
         expect_solver_ran=True,
+        expect_decomposition=True,
+        expect_unknowns_contains=("numeric value",),
+        expect_strategy_contains="substitute",
         notes="FIXED (headline bug from the benchmark): this reply does exactly what the "
              "system's own prompt asks - cites [T1] and refers to the computed value in words, "
              "never restating the digit. known_result previously misread the citation tag's own "
@@ -335,6 +342,9 @@ PROBLEMS: list[Problem] = [
             "- the negative sign indicates a bound state"),
         expected_status=("verified_mathematically",),
         expect_solver_ran=True,
+        expect_decomposition=True,
+        expect_unknowns_contains=("numeric value",),
+        expect_strategy_contains="substitute",
         notes="FIXED, same as calc-particle-in-box-n2-1nm: citing [T1] no longer makes "
              "known_result misread the tag's own '1' as the stated energy. Separately, "
              "match_topics() still returns 'harmonic-oscillator' as a secondary match here "
@@ -388,6 +398,9 @@ PROBLEMS: list[Problem] = [
         expected_status=("not_independently_verified",),
         expect_topics_matched=True,
         expect_solver_ran=True,
+        expect_decomposition=True,
+        expect_unknowns_contains=("numeric value",),
+        expect_strategy_contains="substitute",
         notes="FULLY FIXED: the numeric extractor's regex now accepts scientific notation "
              "('1e-10 m'), and uncertainty-principle's key_concepts now include plain "
              "'position'/'momentum'/'minimum' tokens (previously only a hyphenated "
@@ -728,6 +741,78 @@ PROBLEMS: list[Problem] = [
              "it by direct matrix multiplication, correctly failing it. symbol_consistency still "
              "passes (the [C:spin-pauli] citation is genuinely real), so the honest overall "
              "outcome is partially_verified - detected, not silently passed.",
+    ),
+
+    # ── Multi-step problem solving: a genuine "derive the general formula AND
+    #    calculate a specific numeric value" combined ask - qualitatively
+    #    different from the existing multi_step category's pure-numeric
+    #    questions, which never populate the "general symbolic expression"
+    #    half of decompose_problem()'s unknowns. Added because no existing
+    #    problem exercised this combined pattern. ───────────────────────────
+    Problem(
+        id="solve-particle-in-box-derive-and-calculate", category="problem_solving",
+        domain="quantum-mechanics",
+        question="A particle is in a one-dimensional infinite potential well of width L. "
+                "Derive the energy eigenvalues and calculate the ground-state energy for an "
+                "electron when L = 1 nm.",
+        derivation_reply=(
+            "GIVEN / FIND / ASSUMPTIONS\n"
+            "- given: the ground-state configuration of an electron in a narrow infinite well "
+            "[T1]\n"
+            "- find: the general energy eigenvalue formula and the numeric ground-state energy\n"
+            "- assumptions: infinite potential walls, non-relativistic particle, strictly "
+            "one-dimensional confinement\n\n"
+            "DERIVATION PLAN\n"
+            "- start from the infinite-square-well governing equation [C:particle-in-a-box]\n"
+            "- solving the Schrodinger equation with these boundary conditions gives the "
+            "quantized energy formula\n"
+            "- substituting the given configuration, the solver's computed result [T1] is the "
+            "ground-state answer, referred to in words rather than restated\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- confinement in a smaller well raises the energy scale\n"
+            "- the ground state has nonzero energy, unlike a classical particle at rest"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=True,
+        expect_decomposition=True,
+        expect_unknowns_contains=("general symbolic expression", "numeric value"),
+        expect_strategy_contains="substitute",
+        notes="THE flagship example for this capability - this exact question was confirmed "
+             "BROKEN before the multi-step phase: _level_n() only recognized 'ground state' "
+             "(space), not the 'ground-state' (hyphen) used here, so compute_for() never ran "
+             "and no numeric answer was ever actually computed. Now fully solved: real n=1, "
+             "L=1nm, energy_eV=0.37603, with genuine Given/Find/Assumptions/Strategy reaching "
+             "the reasoning prompt and a fully verified numeric result.",
+    ),
+    Problem(
+        id="solve-hydrogen-ground-state-derive-and-calculate", category="problem_solving",
+        domain="quantum-mechanics",
+        question="Derive the general energy formula for the hydrogen atom and calculate the "
+                "ground-state energy.",
+        derivation_reply=(
+            "GIVEN / FIND / ASSUMPTIONS\n"
+            "- given: the ground-state configuration of the hydrogen atom [T1]\n"
+            "- find: the general energy formula and the numeric ground-state energy\n"
+            "- assumptions: the proton is treated as fixed, only the Coulomb interaction is "
+            "included\n\n"
+            "DERIVATION PLAN\n"
+            "- solve the radial Schrodinger equation for the Coulomb potential "
+            "[C:hydrogen-atom]\n"
+            "- this gives the quantized Bohr-like energy formula\n"
+            "- for the ground state, the solver's computed result [T1] is the answer, referred "
+            "to in words rather than restated\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- the negative sign indicates a bound state\n"
+            "- higher-n states approach the ionization threshold"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=True,
+        expect_decomposition=True,
+        expect_unknowns_contains=("general symbolic expression", "numeric value"),
+        expect_strategy_contains="substitute",
+        notes="Second solver-backed topic exercising the same combined derive+calculate "
+             "pattern, confirming decompose_problem()/solution_strategy() generalize beyond "
+             "particle-in-a-box. Real n=1, energy_eV=-13.605693.",
     ),
 ]
 

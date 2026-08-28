@@ -51,10 +51,11 @@ def run_one(problem: Problem) -> dict:
         return result
 
     verification = payload.get("verification") or {}
+    ep = payload.get("evidence_pack") or {}
     result.update({
         "answer_mode": payload.get("answer_mode"),
         "topics_matched": [t["id"] for t in payload.get("topics", [])],
-        "math_object_count": len((payload.get("evidence_pack") or {}).get("mathematical_objects", [])),
+        "math_object_count": len(ep.get("mathematical_objects", [])),
         "solver_ran": bool((payload.get("computed") or {}).get("ran")),
         "status": verification.get("status"),
         "confidence": verification.get("confidence"),
@@ -62,6 +63,11 @@ def run_one(problem: Problem) -> dict:
         "failed_checks": [f["check"] for f in verification.get("failed", [])],
         "corrections": verification.get("corrections", []),
         "num_llm_calls": len(client.calls),
+        # ── problem decomposition / solution strategy (multi-step solving) ──
+        "givens": ep.get("givens", []),
+        "unknowns": ep.get("unknowns", []),
+        "assumptions": ep.get("assumptions", []),
+        "strategy": ep.get("strategy", ""),
     })
     return result
 
@@ -92,6 +98,28 @@ def score(problem: Problem, result: dict) -> dict:
     if problem.expect_solver_ran is not None:
         if result["solver_ran"] != problem.expect_solver_ran:
             findings.append(f"solver_ran: expected {problem.expect_solver_ran}, got {result['solver_ran']}")
+
+    # ── problem decomposition / solution strategy (multi-step solving) ──────
+    if problem.expect_decomposition is not None:
+        all_present = bool(result["givens"]) and bool(result["unknowns"]) and \
+            bool(result["assumptions"]) and bool(result["strategy"])
+        if all_present != problem.expect_decomposition:
+            passed = False
+            findings.append(f"decomposition: expected populated={problem.expect_decomposition}, "
+                            f"got givens={bool(result['givens'])} unknowns={bool(result['unknowns'])} "
+                            f"assumptions={bool(result['assumptions'])} strategy={bool(result['strategy'])}")
+
+    for expected_substr in problem.expect_unknowns_contains:
+        if not any(expected_substr in u for u in result["unknowns"]):
+            passed = False
+            findings.append(f"unknowns: expected a substring {expected_substr!r} somewhere in "
+                            f"{result['unknowns']!r}")
+
+    if problem.expect_strategy_contains is not None:
+        if problem.expect_strategy_contains not in result["strategy"]:
+            passed = False
+            findings.append(f"strategy: expected substring {problem.expect_strategy_contains!r} "
+                            f"in {result['strategy']!r}")
 
     detected = None
     if problem.is_wrong and problem.targeted_check:
@@ -137,6 +165,17 @@ def summarize(rows: list[dict]) -> dict:
     solver_as_expected = [r for r in solver_checked
                           if bool(r["result"].get("solver_ran")) == r["problem"].expect_solver_ran]
 
+    # ── problem decomposition / solution strategy (multi-step solving) ──────
+    decomp_checked = [r for r in rows if r["problem"].expect_decomposition is not None]
+    decomp_as_expected = [r for r in decomp_checked
+                          if not any(f.startswith("decomposition:") for f in r["score"]["findings"])]
+    unknowns_checked = [r for r in rows if r["problem"].expect_unknowns_contains]
+    unknowns_as_expected = [r for r in unknowns_checked
+                            if not any(f.startswith("unknowns:") for f in r["score"]["findings"])]
+    strategy_checked = [r for r in rows if r["problem"].expect_strategy_contains is not None]
+    strategy_as_expected = [r for r in strategy_checked
+                            if not any(f.startswith("strategy:") for f in r["score"]["findings"])]
+
     call_counts = {r["result"].get("num_llm_calls") for r in rows if not r["result"]["error"]}
 
     by_category = defaultdict(lambda: {"total": 0, "pass": 0, "topic_matched": 0})
@@ -168,6 +207,13 @@ def summarize(rows: list[dict]) -> dict:
                                        if topic_checked else None),
         "solver_expectation_accuracy": (len(solver_as_expected) / len(solver_checked)
                                         if solver_checked else None),
+        # ── problem decomposition / solution strategy (multi-step solving) ──
+        "decomposition_accuracy": (len(decomp_as_expected) / len(decomp_checked)
+                                   if decomp_checked else None),
+        "unknowns_extraction_accuracy": (len(unknowns_as_expected) / len(unknowns_checked)
+                                         if unknowns_checked else None),
+        "strategy_accuracy": (len(strategy_as_expected) / len(strategy_checked)
+                              if strategy_checked else None),
         "distinct_llm_call_counts_seen": sorted(c for c in call_counts if c is not None),
         "by_category": dict(by_category),
         "by_domain": dict(by_domain),
@@ -211,6 +257,14 @@ def main():
         print(f"Topic-match expectation accuracy: {agg['topic_expectation_accuracy']:.0%}")
     if agg["solver_expectation_accuracy"] is not None:
         print(f"Solver-triggering expectation accuracy: {agg['solver_expectation_accuracy']:.0%}")
+    print(f"\n-- Multi-step problem-solving metrics --")
+    if agg["decomposition_accuracy"] is not None:
+        print(f"Problem decomposition accuracy (givens/unknowns/assumptions/strategy all "
+             f"populated as expected): {agg['decomposition_accuracy']:.0%}")
+    if agg["unknowns_extraction_accuracy"] is not None:
+        print(f"Unknowns extraction accuracy: {agg['unknowns_extraction_accuracy']:.0%}")
+    if agg["strategy_accuracy"] is not None:
+        print(f"Solution-strategy correctness: {agg['strategy_accuracy']:.0%}")
     print(f"LLM calls per problem (should be a single value, 5): {agg['distinct_llm_call_counts_seen']}")
     print("\nBy category (pass / topic-matched / total):")
     for cat, s in sorted(agg["by_category"].items()):

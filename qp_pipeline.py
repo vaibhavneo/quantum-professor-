@@ -710,13 +710,22 @@ def _off_topic_tags(assessment: dict) -> set[str]:
 
 _REASON_SYS = """You are the Derivation Plan & Physical Interpretation stage. \
 Do NOT write the final answer and do not address the reader - this feeds the \
-teaching stage, which expands it into prose. Reply in two labeled parts:
+teaching stage, which expands it into prose. Reply in labeled parts:
+
+GIVEN / FIND / ASSUMPTIONS
+- only when GIVENS, FIND, or ASSUMPTIONS are supplied below: restate them \
+plainly - they are already extracted for you, do not re-derive or second-\
+guess them
+- omit this section entirely when none are supplied (a purely conceptual \
+question) - never invent a given or an assumption that wasn't handed to you
 
 DERIVATION PLAN
 - the starting point (a named equation or definition, tagged) and the \
 assumptions it rests on
 - each algebraic or logical step in order, one per line, noting which tag \
 supports it, or "unsupported"
+- when a numeric GIVEN was supplied, show the explicit substitution step - \
+never jump straight from the symbolic formula to a bare stated number
 - the result the steps arrive at
 - if the supplied MATHEMATICAL OBJECTS don't actually support a full \
 derivation, say plainly which step can't be justified from what's given - \
@@ -727,7 +736,7 @@ PHYSICAL INTERPRETATION
 - where the topics connect to each other, if several are in play
 - the subtlety or limiting case a careful student should notice
 
-Bullets, not prose, in both parts."""
+Bullets, not prose, in every part."""
 
 
 def reasoning_engine(question, u, topics, book_ev, papers, computed, symbolic,
@@ -751,6 +760,14 @@ def reasoning_engine(question, u, topics, book_ev, papers, computed, symbolic,
     if pack is not None and pack.mathematical_objects:
         src += "\n\nMATHEMATICAL OBJECTS:\n" + "\n".join(
             f"[{o['tag']}] {o['name']}: {o['expression']}" for o in pack.mathematical_objects)
+    if pack is not None and pack.givens:
+        src += "\n\nGIVEN: " + "; ".join(pack.givens)
+    if pack is not None and pack.unknowns:
+        src += "\nFIND: " + "; ".join(pack.unknowns)
+    if pack is not None and pack.assumptions:
+        src += "\nSTANDING ASSUMPTIONS: " + "; ".join(pack.assumptions)
+    if pack is not None and pack.strategy:
+        src += f"\nSOLUTION STRATEGY: {pack.strategy}"
     text = _call(client, "reasoning", depth, _REASON_SYS,
                 f"QUESTION: {question}\nRESTATED: {u['restate']}\n\n"
                 f"ASSESSMENT: {assessment.get('gaps')} | "
@@ -813,11 +830,13 @@ soften - say so as plainly as a verified one."""
 _STRUCTURE_DIRECTIVE = (
     "Where they genuinely apply, structure the answer with these sections, in "
     "this order, omitting any that don't apply to this question: Direct Answer, "
-    "Intuition, Mathematical Formulation, Assumptions, Derivation, Comparison, "
-    "Worked Example, Key Takeaway. Do not force an empty section to exist just to "
-    "fill the template. Knowledge-Base Sources and Related Concepts are appended "
-    "automatically after your answer from real data - do not write your own "
-    "versions of those two sections.")
+    "Given & Find, Intuition, Mathematical Formulation, Assumptions, Derivation, "
+    "Comparison, Worked Example, Key Takeaway. Given & Find applies only to a "
+    "genuine multi-step numeric problem (real given values and a real quantity "
+    "to compute) - state them exactly as supplied, never invented. Do not force "
+    "an empty section to exist just to fill the template. Knowledge-Base Sources "
+    "and Related Concepts are appended automatically after your answer from real "
+    "data - do not write your own versions of those two sections.")
 
 
 def _has_math_support(pack) -> bool:
@@ -1413,6 +1432,10 @@ def run(question: str, mode: str = "explain",
                 "curriculum_backed": pack.curriculum_backed,
                 "passage_count": len(pack.passages),
                 "mathematical_objects": pack.mathematical_objects,
+                "givens": pack.givens,
+                "unknowns": pack.unknowns,
+                "assumptions": pack.assumptions,
+                "strategy": pack.strategy,
             }
         if verification is not None:
             payload["verification"] = verification.to_dict()
