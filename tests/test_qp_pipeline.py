@@ -361,6 +361,57 @@ def test_match_topics_bare_classical_mechanics_still_matches_nothing():
     assert qp.match_topics("classical mechanics", k=4) == []
 
 
+# ── release-readiness Phase 3: closed content gaps (Newton's laws, tensor
+#    products) - both confirmed as real gaps, not filler, by the 63-problem
+#    benchmark's unmatched-question list ──────────────────────────────────
+
+def test_match_topics_newtons_second_law_now_covered():
+    topics = qp.match_topics("A 2 kg block experiences a net force of 10 N. Derive Newton's "
+                             "second law and calculate the resulting acceleration.", k=4)
+    assert topics[0].id == "newtons-laws-of-motion"
+
+
+def test_match_topics_energy_conservation_falling_ball_now_covered():
+    topics = qp.match_topics("Using conservation of energy, derive and calculate the speed of "
+                             "a 1 kg ball after falling 5 m from rest.", k=4)
+    assert topics[0].id == "newtons-laws-of-motion"
+
+
+def test_match_topics_tensor_product_now_covered():
+    topics = qp.match_topics("Derive the combined two-qubit basis state using the tensor "
+                             "product of individual qubit states.", k=4)
+    assert topics[0].id == "quantum-information"
+
+
+def test_match_topics_newtons_laws_does_not_hijack_hamiltonian_mechanics_questions():
+    # REGRESSION GUARD: adding newtons-laws-of-motion's "energy"/"conservation"
+    # vocabulary first caused it to OUTSCORE lagrangian-hamiltonian-mechanics
+    # as the PRIMARY match for a question that explicitly prescribes the
+    # Hamiltonian method - caught before this topic was kept, by scoring it
+    # directly against every conservation_law benchmark question.
+    topics = qp.match_topics("Use Hamiltonian mechanics to show energy conservation for a "
+                             "conservative classical system.", k=4)
+    assert topics[0].id == "lagrangian-hamiltonian-mechanics"
+    assert "newtons-laws-of-motion" not in {t.id for t in topics}
+
+
+def test_match_topics_newtons_laws_does_not_crowd_out_schrodinger_equation():
+    # REGRESSION GUARD: an earlier, more generic wording of newtons-laws-of-
+    # motion's key_concepts ("equation", "time", "under") coincidentally
+    # matched "probability is conserved UNDER TIME evolution... Schrodinger
+    # EQUATION", scoring high enough to bump schrodinger-equation out of the
+    # top-k related-topics window entirely - which then made a legitimate
+    # [C:schrodinger-equation] citation register as fabricated
+    # (symbol_consistency: fail). The topic's vocabulary was narrowed to
+    # avoid generic single-word overlap; this asserts schrodinger-equation
+    # is still found and newtons-laws-of-motion is not an intruder.
+    topics = qp.match_topics("Show that probability is conserved under time evolution governed "
+                             "by the Schrodinger equation.", k=4)
+    topic_ids = {t.id for t in topics}
+    assert "schrodinger-equation" in topic_ids
+    assert "newtons-laws-of-motion" not in topic_ids
+
+
 def test_match_topics_secondary_floor_drops_weak_coincidental_overlap():
     # a secondary candidate scoring far below the primary match (weak,
     # coincidental keyword overlap on generic words like "energy") must not

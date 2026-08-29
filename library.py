@@ -154,6 +154,26 @@ BOOKS: Dict[str, Book] = {b.id: b for b in [
 TOPICS: Dict[str, Topic] = {t.id: t for t in [
     # ─── BASICS ──────────────────────────────────────────────────────────────
     Topic(
+        id="newtons-laws-of-motion",
+        title="Newton's Laws of Motion",
+        level="basics",
+        prerequisites=[],
+        key_concepts=["Newton's second law", "net force", "proportional acceleration",
+                     "kinematic motion equations", "work-energy theorem",
+                     "gravitational potential energy converts to kinetic energy",
+                     "speed after falling from rest", "gravitational free fall"],
+        key_equations=[r"F = ma", r"v^2 = v_0^2 + 2a\,\Delta x", r"KE = \tfrac{1}{2}mv^2",
+                      r"PE = mgh", r"\tfrac{1}{2}mv^2 = mgh"],
+        intuition="A net force produces an acceleration in exact proportion to it (F=ma), "
+                 "and free of friction or air resistance, an object's gravitational potential "
+                 "energy converts completely into kinetic energy as it falls, so its final "
+                 "speed follows from the height it fell, not its mass. These are the "
+                 "elementary tools every more sophisticated formalism has to reduce to in the "
+                 "appropriate limit.",
+        book_refs=[],
+        problem_ids=[],
+    ),
+    Topic(
         id="lagrangian-hamiltonian-mechanics",
         title="Lagrangian and Hamiltonian Mechanics",
         level="basics",
@@ -551,10 +571,11 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         title="Quantum Information & Computing",
         level="advanced_topics",
         prerequisites=["spin-pauli", "measurement-postulates", "identical-particles"],
-        key_concepts=["qubits", "quantum gates", "entanglement as resource", "no-cloning theorem", "quantum error correction", "Grover's and Shor's algorithms", "qubit vs classical bit", "Bloch sphere representation", "Hadamard gate", "superposition and quantum parallelism"],
+        key_concepts=["qubits", "quantum gates", "entanglement as resource", "no-cloning theorem", "quantum error correction", "Grover's and Shor's algorithms", "qubit vs classical bit", "Bloch sphere representation", "Hadamard gate", "superposition and quantum parallelism", "tensor product of two-qubit basis states", "combining independent quantum systems", "Bell states"],
         key_equations=[
             r"|0\rangle = \begin{pmatrix}1\\0\end{pmatrix},\quad |1\rangle = \begin{pmatrix}0\\1\end{pmatrix}",
             r"H|0\rangle = \frac{1}{\sqrt{2}}(|0\rangle + |1\rangle)",
+            r"|q_1\rangle \otimes |q_2\rangle = |q_1 q_2\rangle",
         ],
         intuition="A qubit is a quantum two-level system. Unlike a classical bit, it can be in a superposition. Entangled qubits exhibit correlations with no classical explanation. Quantum algorithms exploit interference to solve problems faster than any classical computer.",
         book_refs=["nielsen-chuang"],

@@ -95,6 +95,19 @@ PROBLEMS: list[Problem] = [
              "not_independently_verified.",
     ),
     Problem(
+        id="concept-no-cloning-theorem", category="conceptual", domain="quantum-computing",
+        question="What is the no-cloning theorem and why is it important in quantum computing?",
+        derivation_reply=_concept("an unknown quantum state cannot be copied exactly, which is "
+                                  "why quantum information cannot simply be duplicated like "
+                                  "classical bits"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=True,
+        notes="NEW (release-readiness Phase 4): quantum-information's key_concepts already "
+             "named 'no-cloning theorem' explicitly, but nothing in the benchmark exercised "
+             "it - added to close that coverage gap. Matches quantum-information; "
+             "not_independently_verified is correct since the scripted reply cites no tag.",
+    ),
+    Problem(
         id="concept-schrodinger-vs-heisenberg-picture", category="conceptual", domain="math-physics",
         question="What is the difference between the Schrodinger picture and the Heisenberg picture?",
         derivation_reply=_concept("in the Schrodinger picture states evolve and operators are "
@@ -124,6 +137,30 @@ PROBLEMS: list[Problem] = [
         expected_status=("not_independently_verified",),
         expect_topics_matched=True,
         notes="Matches qft-fundamentals topic.",
+    ),
+    Problem(
+        id="concept-klein-gordon-equation", category="conceptual", domain="qft",
+        question="What is the Klein-Gordon equation and what does it describe?",
+        derivation_reply=_concept("it is the relativistic wave equation for spin-0 particles, "
+                                  "obtained by quantizing the relativistic energy-momentum "
+                                  "relation"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=True,
+        notes="NEW (release-readiness Phase 4): relativistic-qm's key_concepts already named "
+             "'Klein-Gordon equation' explicitly, but no benchmark problem exercised it - QFT "
+             "coverage before this addition was only symmetry-breaking and renormalization.",
+    ),
+    Problem(
+        id="concept-creation-annihilation-operators", category="conceptual", domain="qft",
+        question="What are creation and annihilation operators in quantum field theory?",
+        derivation_reply=_concept("they raise or lower the number of field quanta in a given "
+                                  "mode, the ladder operators of the quantized field"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=True,
+        notes="NEW (release-readiness Phase 4): matches second-quantization primarily, with "
+             "qft-fundamentals and harmonic-oscillator as legitimate secondary matches (the "
+             "same ladder-operator formalism the QHO already uses) - closes an untested but "
+             "real curriculum concept.",
     ),
 
     # ── 2. Mathematical derivations ──────────────────────────────────────────
@@ -838,12 +875,14 @@ PROBLEMS: list[Problem] = [
             "PHYSICAL INTERPRETATION\n"
             "- the block accelerates in the direction of the net force"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
+        expect_topics_matched=True,
         expect_solver_ran=False,
-        notes="GAP: no curriculum topic covers Newton's second law at all (confirmed: zero "
-             "match), and there is no classical-mechanics numeric solver in physics.py - F=ma "
-             "with concrete numbers is never actually computed anywhere in this pipeline, "
-             "despite being the most basic classical mechanics problem there is.",
+        notes="RETRIEVAL FIXED: added a newtons-laws-of-motion curriculum topic (release-"
+             "readiness Phase 3), so this now matches on real vocabulary ('Newton's second "
+             "law', 'net force', 'acceleration'). status stays not_independently_verified - "
+             "there is still no classical-mechanics numeric solver in physics.py, and this "
+             "scripted reply cites no [C:]/[T1] tag for symbol_consistency to check - "
+             "F=ma with concrete numbers is still never actually computed by this pipeline.",
     ),
     Problem(
         id="solve-shm-angular-frequency", category="problem_solving", domain="classical-mechanics",
@@ -880,13 +919,15 @@ PROBLEMS: list[Problem] = [
             "PHYSICAL INTERPRETATION\n"
             "- gravitational PE converts entirely to kinetic energy"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
+        expect_topics_matched=True,
         expect_solver_ran=False,
-        notes="GAP: same shape as Newton's second law - no curriculum topic, no solver. Also "
-             "reveals a scope limit of check_conservation_law specifically: it only verifies "
-             "SIMPLE HARMONIC MOTION energy conservation (a fixed E=1/2mv^2+1/2kx^2 computation) "
-             "- gravitational PE-to-KE conversion is a different conservation-of-energy claim "
-             "entirely, which no check covers.",
+        notes="RETRIEVAL FIXED: now matches the same newtons-laws-of-motion topic added for "
+             "Newton's second law above ('speed after falling from rest', 'gravitational free "
+             "fall'). status stays not_independently_verified - no numeric solver, no cited "
+             "tag. Also still reveals a real scope limit of check_conservation_law: it only "
+             "verifies SIMPLE HARMONIC MOTION energy conservation (a fixed E=1/2mv^2+1/2kx^2 "
+             "computation) - gravitational PE-to-KE conversion is a different conservation-of-"
+             "energy claim entirely, which no check covers.",
     ),
     Problem(
         id="solve-lagrangian-euler-lagrange", category="problem_solving",
@@ -1154,11 +1195,13 @@ PROBLEMS: list[Problem] = [
             "PHYSICAL INTERPRETATION\n"
             "- tensor products are how independent quantum systems combine"),
         expected_status=("not_independently_verified",),
-        expect_topics_matched=False,
+        expect_topics_matched=True,
         expect_solver_ran=False,
-        notes="GAP, confirmed even after rephrasing to include 'tensor product' and 'two-qubit "
-             "basis state' explicitly: no curriculum topic covers tensor products at all, and "
-             "there is no tensor/Kronecker-product operation anywhere in the execution layer.",
+        notes="RETRIEVAL FIXED: quantum-information's key_concepts/key_equations now include "
+             "tensor-product vocabulary (release-readiness Phase 3), so this matches. status "
+             "stays not_independently_verified, and execution_backed stays False - there is "
+             "still no tensor/Kronecker-product operation anywhere in the execution layer, "
+             "only a curriculum citation is now available where none existed before.",
     ),
 
     # -- mathematical physics --------------------------------------------------

@@ -593,6 +593,65 @@ def test_hydrogen_transition_genuinely_fabricated_citation_still_detected():
     assert any("T2" in f["detail"] for f in result.failed)
 
 
+# ── release-readiness Phase 5 (adversarial correctness): documented, real
+# limitations found by testing claim types the original 6 planted-error
+# benchmark problems never targeted. These are NOT bugs fixed here - fixing
+# them would mean teaching boundary_conditions/limiting_case/classical_limit/
+# conservation_law to parse and compare against the derivation's OWN stated
+# claim, which none of them do today; they each independently RE-DERIVE one
+# fixed, already-true fact (e.g. "psi vanishes at the well's walls") and
+# report pass/fail on THAT, regardless of what the surrounding prose
+# actually asserts. That is real, load-bearing verification (the fact
+# itself is genuinely checked, not asserted) - it is just not the same as
+# checking the DERIVATION'S claim. These tests exist so this gap is a known,
+# tracked property of the system rather than a silent assumption.
+
+def test_known_limitation_boundary_conditions_check_ignores_a_contradicting_claim():
+    computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
+    pack = EvidencePack(question="q", topics=[_topic("particle-in-a-box")])
+    wrong_claim = ("the wavefunction does NOT need to vanish at the walls of the infinite "
+                  "well - psi(0) and psi(L) can be nonzero since the box is only "
+                  "approximately infinite")
+    reasoning = {"derivation_plan": wrong_claim, "text": wrong_claim}
+    result = v.verify_derivation("q", {}, pack, reasoning, computed, None)
+    # Documents the actual (limited) behavior: boundary_conditions independently
+    # reconfirms psi(0)=psi(L)=0 - a true fact - without ever reading that the
+    # text asserted the opposite, so the false prose claim is not caught.
+    assert result.status == "verified_mathematically"
+    bc = next(c for c in result.checks if c["name"] == "boundary_conditions")
+    assert bc["status"] == "pass"
+
+
+def test_known_limitation_conservation_law_check_ignores_a_contradicting_claim():
+    pack = EvidencePack(question="q", topics=[_topic("harmonic-oscillator")])
+    wrong_claim = ("energy is NOT conserved for the classical harmonic oscillator - it decays "
+                  "over each cycle due to the restoring force")
+    reasoning = {"derivation_plan": wrong_claim, "text": wrong_claim}
+    result = v.verify_derivation("q", {}, pack, reasoning, None, None)
+    assert result.status == "verified_mathematically"
+    cl = next(c for c in result.checks if c["name"] == "conservation_law")
+    assert cl["status"] == "pass"
+
+
+def test_known_limitation_physical_interpretation_correctness_is_not_checked():
+    # No check evaluates the PHYSICAL INTERPRETATION prose's semantic
+    # correctness (doing so would need an LLM judgement call, out of scope
+    # for this deterministic layer) - a correct citation and correct number
+    # paired with a backwards physical claim ("tighter confinement lowers
+    # the energy", the opposite of the truth) still verifies.
+    computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
+    pack = EvidencePack(question="q", topics=[_topic("particle-in-a-box")],
+                        mathematical_objects=[{"tag": "T1", "name": "computed relation",
+                                              "expression": "E_n = n^2 pi^2 hbar^2/(2mL^2)",
+                                              "kind": "computed_result", "topic_id": None}])
+    backwards = ("the solver's computed result [T1] gives the energy; a SMALLER box would "
+                "give a LOWER confinement energy, so tighter confinement always reduces the "
+                "energy level")
+    reasoning = {"derivation_plan": backwards, "text": backwards}
+    result = v.verify_derivation("q", {}, pack, reasoning, computed, None)
+    assert result.status == "verified_mathematically"
+
+
 def test_hydrogen_transition_incorrect_mathematics_still_detected():
     # a legitimate [T1] citation does not exempt the derivation from having
     # to state the RIGHT number - the real answer for n=3->n=2 is
