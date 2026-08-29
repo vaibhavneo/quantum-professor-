@@ -177,6 +177,45 @@ def derive(expression: str, operation: str, wrt: str = "x",
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+def solve_ode(equation: str, func_name: str = "y", wrt: str = "x") -> dict:
+    """Solves a first-order ODE via sympy's dsolve() - a genuinely separate
+    capability from derive() above, not an extra entry in its ops dict:
+    derive() sympifies everything as plain Symbols and runs a single-
+    expression operation, but an ODE needs "y" to be a sympy Function of x
+    (so its derivative means something), which is a different parsing shape
+    from every other operation there. Recognizes "dy/dx = ...", "y' = ...",
+    or an equivalent already-Eq()-shaped string. Returns {"ok": False, ...}
+    rather than guessing when the equation can't be parsed this way.
+    """
+    try:
+        sp = _sympy()
+        x = sp.Symbol(wrt, real=True)
+        y = sp.Function(func_name)
+        normalized = equation
+        normalized = re.sub(rf"d{func_name}/d{wrt}",
+                            f"Derivative({func_name}({wrt}),{wrt})", normalized)
+        normalized = re.sub(rf"\b{func_name}'", f"Derivative({func_name}({wrt}),{wrt})", normalized)
+        # any remaining bare occurrence of the function name (not already
+        # applied, e.g. the "y" in "-k*y") means y(x), not the function itself
+        normalized = re.sub(rf"\b{func_name}\b(?!\()", f"{func_name}({wrt})", normalized)
+        if "=" not in normalized:
+            return {"ok": False, "error": "not an equation (no '=' found)"}
+        lhs_txt, _, rhs_txt = normalized.partition("=")
+        ns = {func_name: y, wrt: x, "Derivative": sp.Derivative}
+        other_syms = sorted(set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", rhs_txt))
+                            - {func_name, wrt, "Derivative"})
+        for s in other_syms:
+            if s not in dir(sp):
+                ns[s] = sp.Symbol(s, real=True, positive=True)
+        lhs = sp.sympify(lhs_txt.strip(), locals=ns)
+        rhs = sp.sympify(rhs_txt.strip(), locals=ns)
+        solution = sp.dsolve(sp.Eq(lhs, rhs), y(x))
+        return {"ok": True, "equation": equation, "solution": str(solution),
+                "latex": sp.latex(solution)}
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 # ── research notebook ─────────────────────────────────────────────────────
 
 def _load() -> dict:

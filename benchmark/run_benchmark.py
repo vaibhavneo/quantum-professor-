@@ -52,6 +52,7 @@ def run_one(problem: Problem) -> dict:
 
     verification = payload.get("verification") or {}
     ep = payload.get("evidence_pack") or {}
+    execution = payload.get("execution") or {}
     result.update({
         "answer_mode": payload.get("answer_mode"),
         "topics_matched": [t["id"] for t in payload.get("topics", [])],
@@ -68,7 +69,21 @@ def run_one(problem: Problem) -> dict:
         "unknowns": ep.get("unknowns", []),
         "assumptions": ep.get("assumptions", []),
         "strategy": ep.get("strategy", ""),
+        # ── deterministic execution: what was ACTUALLY executed, distinct
+        # from what was merely cited - the key signal for whether execution
+        # generalizes, versus verified_mathematically being earned by
+        # citation honesty (symbol_consistency) alone.
+        "execution_numerical": bool(execution.get("numerical_calculation")),
+        "execution_symbolic": bool(execution.get("symbolic_algebra")),
+        "execution_matrix": bool(execution.get("matrix_operations")),
+        "execution_units": bool(execution.get("unit_conversions")),
+        "execution_differential_equation": bool(execution.get("differential_equation")),
     })
+    result["execution_backed"] = (result["execution_numerical"] or result["execution_symbolic"]
+                                  or result["execution_matrix"]
+                                  or result["execution_differential_equation"])
+    result["citation_only_verified"] = (result["status"] == "verified_mathematically"
+                                        and result["passed_checks"] == ["symbol_consistency"])
     return result
 
 
@@ -178,6 +193,13 @@ def summarize(rows: list[dict]) -> dict:
 
     call_counts = {r["result"].get("num_llm_calls") for r in rows if not r["result"]["error"]}
 
+    # ── deterministic execution generalization (problem_solving category) ──
+    ps_rows = [r for r in rows if r["problem"].category == "problem_solving"]
+    ps_verified = [r for r in ps_rows if r["result"].get("status") == "verified_mathematically"]
+    ps_execution_backed = [r for r in ps_rows if r["result"].get("execution_backed")]
+    ps_citation_only = [r for r in ps_verified if r["result"].get("citation_only_verified")]
+    ps_no_grounding = [r for r in ps_rows if not r["result"].get("topics_matched")]
+
     by_category = defaultdict(lambda: {"total": 0, "pass": 0, "topic_matched": 0})
     by_domain = defaultdict(lambda: {"total": 0, "pass": 0, "topic_matched": 0})
     for r in rows:
@@ -215,6 +237,17 @@ def summarize(rows: list[dict]) -> dict:
         "strategy_accuracy": (len(strategy_as_expected) / len(strategy_checked)
                               if strategy_checked else None),
         "distinct_llm_call_counts_seen": sorted(c for c in call_counts if c is not None),
+        # ── deterministic execution generalization (problem_solving only) ───
+        "problem_solving_count": len(ps_rows),
+        "problem_solving_no_grounding_count": len(ps_no_grounding),
+        "problem_solving_no_grounding_ids": [r["problem"].id for r in ps_no_grounding],
+        "execution_backed_count": len(ps_execution_backed),
+        "execution_backed_rate": len(ps_execution_backed) / len(ps_rows) if ps_rows else None,
+        "verified_count": len(ps_verified),
+        "citation_only_verified_count": len(ps_citation_only),
+        "citation_only_verified_rate": (len(ps_citation_only) / len(ps_verified)
+                                        if ps_verified else None),
+        "citation_only_verified_ids": [r["problem"].id for r in ps_citation_only],
         "by_category": dict(by_category),
         "by_domain": dict(by_domain),
     }
@@ -265,6 +298,19 @@ def main():
         print(f"Unknowns extraction accuracy: {agg['unknowns_extraction_accuracy']:.0%}")
     if agg["strategy_accuracy"] is not None:
         print(f"Solution-strategy correctness: {agg['strategy_accuracy']:.0%}")
+    print(f"\n-- Deterministic execution generalization (problem_solving category) --")
+    print(f"Problems in category:            {agg['problem_solving_count']}")
+    print(f"No curriculum grounding at all:  {agg['problem_solving_no_grounding_count']} "
+         f"{agg['problem_solving_no_grounding_ids']}")
+    print(f"Execution-backed (real numeric/symbolic/matrix computation): "
+         f"{agg['execution_backed_count']}/{agg['problem_solving_count']} "
+         f"({agg['execution_backed_rate']:.0%})" if agg['execution_backed_rate'] is not None else "n/a")
+    print(f"'verified_mathematically' by citation alone (symbol_consistency only, no "
+         f"execution or other check): {agg['citation_only_verified_count']}/"
+         f"{agg['verified_count']} of verified "
+         f"({agg['citation_only_verified_rate']:.0%})" if agg['citation_only_verified_rate']
+         is not None else "n/a")
+    print(f"  {agg['citation_only_verified_ids']}")
     print(f"LLM calls per problem (should be a single value, 5): {agg['distinct_llm_call_counts_seen']}")
     print("\nBy category (pass / topic-matched / total):")
     for cat, s in sorted(agg["by_category"].items()):

@@ -814,6 +814,413 @@ PROBLEMS: list[Problem] = [
              "pattern, confirming decompose_problem()/solution_strategy() generalize beyond "
              "particle-in-a-box. Real n=1, energy_eV=-13.605693.",
     ),
+
+    # ── Expanded problem-solving coverage (step 4): 19 more problems across
+    #    classical mechanics, quantum mechanics, quantum computing, and
+    #    mathematical physics, specifically to expose whether the
+    #    Deterministic Execution layer generalizes beyond the handful of
+    #    pre-registered solver/matrix-claim patterns it currently covers.
+    #    Every expected_* value below was checked against the ACTUAL current
+    #    behavior (not an idealized target) before being written down - many
+    #    of these are deliberately "not_independently_verified" or
+    #    "verified_mathematically-via-citation-only", because that is
+    #    honestly what happens today, not because it's the desired end state.
+
+    # -- classical mechanics --------------------------------------------------
+    Problem(
+        id="solve-newtons-second-law", category="problem_solving", domain="classical-mechanics",
+        question="A 2 kg block experiences a net force of 10 N. Derive Newton's second law and "
+                "calculate the resulting acceleration.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- Newton's second law states F = ma\n"
+            "- solving for acceleration gives a = F/m\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- the block accelerates in the direction of the net force"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=False,
+        expect_solver_ran=False,
+        notes="GAP: no curriculum topic covers Newton's second law at all (confirmed: zero "
+             "match), and there is no classical-mechanics numeric solver in physics.py - F=ma "
+             "with concrete numbers is never actually computed anywhere in this pipeline, "
+             "despite being the most basic classical mechanics problem there is.",
+    ),
+    Problem(
+        id="solve-shm-angular-frequency", category="problem_solving", domain="classical-mechanics",
+        question="Derive the equation of motion for a mass-spring simple harmonic oscillator "
+                "and calculate the angular frequency for m=1 kg, k=100 N/m.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- Newton's second law gives m*x'' = -k*x\n"
+            "- this yields angular frequency omega = sqrt(k/m)\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- the mass oscillates sinusoidally about equilibrium"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="FINDING (domain-crossing retrieval risk): a CLASSICAL mass-spring question "
+             "primary-matches the QUANTUM harmonic-oscillator curriculum topic (shared "
+             "vocabulary: 'harmonic oscillator', 'angular frequency') - there is no separate "
+             "classical-SHM topic to match instead. No solver exists for classical m/k inputs "
+             "either. It still reaches verified_mathematically via conservation_law, which "
+             "happens to be physically correct here (it independently checks classical SHM "
+             "energy conservation, regardless of which topic triggered it) - a coincidence of "
+             "the check's own content, not a designed guarantee that a quantum-topic match "
+             "will always be classically valid.",
+    ),
+    Problem(
+        id="solve-energy-conservation-falling-ball", category="problem_solving",
+        domain="classical-mechanics",
+        question="Using conservation of energy, derive and calculate the speed of a 1 kg ball "
+                "after falling 5 m from rest.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- conservation of energy: mgh = (1/2)mv^2\n"
+            "- solving gives v = sqrt(2gh)\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- gravitational PE converts entirely to kinetic energy"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=False,
+        expect_solver_ran=False,
+        notes="GAP: same shape as Newton's second law - no curriculum topic, no solver. Also "
+             "reveals a scope limit of check_conservation_law specifically: it only verifies "
+             "SIMPLE HARMONIC MOTION energy conservation (a fixed E=1/2mv^2+1/2kx^2 computation) "
+             "- gravitational PE-to-KE conversion is a different conservation-of-energy claim "
+             "entirely, which no check covers.",
+    ),
+    Problem(
+        id="solve-lagrangian-euler-lagrange", category="problem_solving",
+        domain="lagrangian-hamiltonian",
+        question="Derive the Euler-Lagrange equation from the principle of least action for a "
+                "simple pendulum.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- the action S = integral of L dt is stationary for the true path "
+            "[C:lagrangian-hamiltonian-mechanics]\n"
+            "- this yields d/dt(dL/dtheta_dot) - dL/dtheta = 0\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- this is equivalent to Newton's second law in generalized coordinates"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="CITATION-ONLY: matches the real lagrangian-hamiltonian-mechanics topic (a "
+             "genuine retrieval win), but nothing about the Euler-Lagrange derivation ITSELF is "
+             "executed or checked - verified_mathematically here is earned entirely by "
+             "symbol_consistency (the citation is real), not by any computation confirming the "
+             "specific derivation steps. No symbolic/numeric/matrix execution fires at all.",
+    ),
+    Problem(
+        id="solve-hamiltonian-mechanics-conserved-quantity", category="problem_solving",
+        domain="lagrangian-hamiltonian",
+        question="Derive Hamilton's equations for a simple harmonic oscillator and identify "
+                "the conserved quantity.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- the Hamiltonian is H = p^2/2m + (1/2)kx^2 "
+            "[C:lagrangian-hamiltonian-mechanics]\n"
+            "- Hamilton's equations follow from partial derivatives of H\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- H itself is conserved since it has no explicit time dependence"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="CITATION-ONLY, PLUS a real but coincidentally-relevant check: primary-matches "
+             "lagrangian-hamiltonian-mechanics (real citation), and ALSO happens to pick up "
+             "harmonic-oscillator as a secondary match, which lets conservation_law fire - "
+             "genuinely checking SHM energy conservation, which is at least topically related "
+             "to this question. Still, Hamilton's EQUATIONS themselves (the actual dp/dt, dq/dt "
+             "relations asked for) are never symbolically derived or checked by anything.",
+    ),
+
+    # -- quantum mechanics ------------------------------------------------------
+    Problem(
+        id="solve-qho-derive-and-calculate-v2", category="problem_solving",
+        domain="quantum-mechanics",
+        question="Derive the quantum harmonic oscillator energy levels and calculate the "
+                "ground-state energy for omega = 2e14 rad/s.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- start from the QHO Hamiltonian [C:harmonic-oscillator]\n"
+            "- solving gives quantized levels; the solver's computed result [T1] is the "
+            "ground-state answer, referred to in words\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- nonzero zero-point energy persists even in the ground state"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=True,
+        expect_decomposition=True,
+        notes="FULL EXECUTION, confirming the ground-state fix (n=0) generalizes to a second "
+             "omega value: real numerical_calculation AND a real unit conversion (J to eV) "
+             "both reach the execution record, plus limiting_case/classical_limit/"
+             "conservation_law all genuinely fire for this topic.",
+    ),
+    Problem(
+        id="solve-uncertainty-derive-and-calculate", category="problem_solving",
+        domain="quantum-mechanics",
+        question="Derive the Heisenberg uncertainty relation and calculate the minimum "
+                "momentum uncertainty for an electron confined to 0.5 nm.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- the uncertainty relation follows from the canonical commutator "
+            "[C:uncertainty-principle]\n"
+            "- the solver's computed result [T1] gives the minimum momentum uncertainty, "
+            "referred to in words\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- tighter confinement forces larger momentum uncertainty"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=True,
+        expect_decomposition=True,
+        notes="Real numerical_calculation reaches the execution record (delta_x=0.5nm "
+             "correctly parsed and computed) - confirms the plain-decimal (non-scientific-"
+             "notation) numeric path also works, complementing the earlier scientific-notation "
+             "fix. No unit-conversion pair exists in this solver's result, so unit_conversions "
+             "is honestly empty.",
+    ),
+    Problem(
+        id="solve-canonical-commutator-derive-and-verify", category="problem_solving",
+        domain="math-physics",
+        question="Derive the canonical commutator of position and momentum and verify it "
+                "equals i hbar.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- acting on a test function, [x,p] = i*hbar [C:commutators]\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- this nonzero commutator is the algebraic root of the uncertainty principle"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="Real matrix_operations execution: the canonical-commutator claim is parsed from "
+             "the derivation text and compared against the reference i*hbar relation, "
+             "confirming the execution layer's commutator path generalizes to a differently-"
+             "phrased question than the one it was originally built against.",
+    ),
+    Problem(
+        id="solve-hydrogen-transition-derive-and-calculate", category="problem_solving",
+        domain="quantum-mechanics",
+        question="Derive the transition energy formula and calculate the wavelength emitted "
+                "when a hydrogen electron transitions from n=3 to n=2.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- the Rydberg formula gives the transition energy [C:bohr-model]\n"
+            "- the solver's computed result [T1] gives the wavelength, referred to in words\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- this transition produces the Balmer-alpha line"),
+        is_wrong=False,
+        expected_status=("failed",),
+        expect_topics_matched=True,
+        expect_solver_ran=True,
+        notes="REAL BUG FOUND (not a benchmark-authoring issue): the solver genuinely runs "
+             "(real n_i=3, n_f=2, wavelength_nm=656.1123) and the derivation cites [T1] exactly "
+             "as the professor's own prompt instructs - but physics.py's hydrogen-transition "
+             "solver result has NO 'formula' field (every other solver's result includes one). "
+             "extract_mathematical_objects() only adds a T1 mathematical object when a formula "
+             "string is present, so [T1] is never actually 'offered' for this solver, and "
+             "symbol_consistency incorrectly flags it as fabricated. This is a genuine "
+             "inconsistency between what the professor is told is citable and what "
+             "verification accepts - worth fixing by adding a formula string to "
+             "physics.py's hydrogen-transition solver result.",
+    ),
+    Problem(
+        id="solve-expectation-value-position", category="problem_solving",
+        domain="quantum-mechanics",
+        question="Calculate the expectation value of position for a particle in the ground "
+                "state of an infinite square well.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- the expectation value is <x> = integral of psi* x psi dx "
+            "[C:particle-in-a-box]\n"
+            "- by symmetry of the ground state wavefunction about the well's center, <x> = L/2\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- the particle is, on average, found at the center of the well"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="GAP in the execution layer specifically: there is no expectation-value "
+             "integrator anywhere (research.py's derive() supports integrate, but nothing "
+             "wires a wavefunction integral like this one through it). Reaches "
+             "verified_mathematically via symbol_consistency plus boundary_conditions (the "
+             "latter genuinely fires because particle-in-a-box is the primary topic, even "
+             "though it checks psi(0)=psi(L)=0, not the <x>=L/2 claim actually made here).",
+    ),
+    Problem(
+        id="solve-tunneling-probability", category="problem_solving", domain="quantum-mechanics",
+        question="Derive the tunneling probability for a particle incident on a potential "
+                "barrier and explain how it depends on barrier width.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- inside the barrier the wavefunction decays exponentially "
+            "[C:step-barrier-tunneling]\n"
+            "- the transmission probability falls off exponentially with barrier width\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- tunneling allows classically forbidden penetration through the barrier"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="CITATION-ONLY: matches the real step-barrier-tunneling topic, but there is no "
+             "tunneling-probability solver in physics.py and no check verifies the exponential "
+             "decay claim - verified_mathematically is earned by symbol_consistency alone.",
+    ),
+
+    # -- quantum computing --------------------------------------------------
+    Problem(
+        id="solve-pauli-multiplication", category="problem_solving", domain="quantum-computing",
+        question="Derive the product sigma_x sigma_y using the explicit Pauli matrices and "
+                "verify the result.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- multiply the explicit 2x2 Pauli matrices directly [C:spin-pauli]\n"
+            "- sigma_x sigma_y = i*sigma_z\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- this algebra underlies how single-qubit gates compose"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="FULL EXECUTION: real matrix_operations record (direct sympy matrix "
+             "multiplication) AND operator_consistency both fire correctly - the "
+             "'problem_solving' framing of the same Pauli-product pattern already proven in "
+             "the operator_eigenvalue category, confirming it isn't category-specific.",
+    ),
+    Problem(
+        id="solve-hadamard-on-zero-state", category="problem_solving", domain="quantum-computing",
+        question="Derive the action of the Hadamard gate on the |0> state and calculate the "
+                "resulting probabilities.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- the Hadamard gate is H = (1/sqrt(2))*[[1,1],[1,-1]] [C:quantum-information]\n"
+            "- applying H to |0> gives (|0>+|1>)/sqrt(2)\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- measurement now gives 0 or 1 with equal 50% probability"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="Now execution-backed: execute_quantum_state_claim() parses the Hadamard-on-|0> "
+             "claim and computes the real state and 50/50 probabilities via sympy, instead of "
+             "no parser existing at all. status/passed stay the same (verified_mathematically "
+             "via symbol_consistency alone) since verify_derivation() never consumed execution "
+             "output and still doesn't - execution and verification remain parallel, "
+             "independent computations; this problem is now genuinely executed AND cited, not "
+             "just cited.",
+    ),
+    Problem(
+        id="solve-measurement-probability-born-rule", category="problem_solving",
+        domain="quantum-computing",
+        question="Using the Born rule and the measurement postulate, calculate the "
+                "probability of a specific measurement outcome for a qubit in the state "
+                "(|0>+|1>)/sqrt(2).",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- the Born rule gives P(outcome) = |amplitude|^2 [C:measurement-postulates]\n"
+            "- applying this to the given amplitude yields the probability\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- probabilities must sum to 1 across all outcomes"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="Now execution-backed: the question was reworded to state a concrete qubit "
+             "state, (|0>+|1>)/sqrt(2), so execute_quantum_state_claim() has something to "
+             "parse and computes the real Born-rule probabilities (0.5/0.5) via sympy. "
+             "status/passed stay the same (verified_mathematically via symbol_consistency "
+             "alone) since verify_derivation() never consumed execution output and still "
+             "doesn't; this problem is now genuinely executed AND cited, not just cited.",
+    ),
+    Problem(
+        id="solve-bell-state-entanglement", category="problem_solving", domain="quantum-computing",
+        question="Derive the entangled Bell state formed by applying a Hadamard gate and a "
+                "CNOT gate to two qubits.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- applying H to the first qubit then CNOT gives (|00>+|11>)/sqrt(2) "
+            "[C:quantum-information]\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- this state cannot be written as a product of two single-qubit states"),
+        expected_status=("verified_mathematically",),
+        expect_topics_matched=True,
+        expect_solver_ran=False,
+        notes="CITATION-ONLY: real quantum-information match, but nothing executes the two-gate "
+             "sequence or checks that the resulting state is genuinely entangled (non-"
+             "factorizable) - a real gap, since entanglement verification is exactly the kind "
+             "of claim a matrix/tensor-aware execution layer could eventually check.",
+    ),
+    Problem(
+        id="solve-tensor-product-two-qubit-state", category="problem_solving",
+        domain="quantum-computing",
+        question="Derive the combined two-qubit basis state using the tensor product of "
+                "individual qubit states.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- the combined state is the tensor product |0> tensor |1> = |01>\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- tensor products are how independent quantum systems combine"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=False,
+        expect_solver_ran=False,
+        notes="GAP, confirmed even after rephrasing to include 'tensor product' and 'two-qubit "
+             "basis state' explicitly: no curriculum topic covers tensor products at all, and "
+             "there is no tensor/Kronecker-product operation anywhere in the execution layer.",
+    ),
+
+    # -- mathematical physics --------------------------------------------------
+    Problem(
+        id="solve-eigenvalue-problem-2x2", category="problem_solving", domain="math-physics",
+        question="Find the eigenvalues of the matrix with rows [2,1] and [1,2] and verify "
+                "them by direct computation.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- solve det(A - lambda*I) = 0\n"
+            "- this gives lambda = 1 and lambda = 3\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- the eigenvalues are the matrix's characteristic values"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=False,
+        expect_solver_ran=False,
+        notes="Now execution-backed: execute_matrix_literal_claim() parses the explicit "
+             "[2,1]/[1,2] matrix and computes real eigenvalues via Matrix.eigenvals() (1 and "
+             "3, confirmed). status stays not_independently_verified - no curriculum topic "
+             "covers generic eigenvalue problems and verify_derivation() doesn't consume "
+             "execution output - so this is now honestly executed-but-still-topically-"
+             "ungrounded, not unexecuted.",
+    ),
+    Problem(
+        id="solve-matrix-multiplication-generic", category="problem_solving",
+        domain="math-physics",
+        question="Compute the product of the matrices with rows [1,2],[3,4] and [0,1],[1,0] "
+                "and verify the result.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- multiply the matrices directly\n"
+            "- the product has rows [2,1] and [4,3]\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- matrix multiplication is not commutative in general"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=False,
+        expect_solver_ran=False,
+        notes="Now execution-backed: execute_matrix_literal_claim() parses the explicit "
+             "[1,2],[3,4] and [0,1],[1,0] matrices and computes the real product via sympy "
+             "(confirmed: [[2,1],[4,3]], matching the stated claim). status stays "
+             "not_independently_verified - no curriculum topic covers generic matrix "
+             "operations and verify_derivation() doesn't consume execution output.",
+    ),
+    Problem(
+        id="solve-differential-equation-exponential-decay", category="problem_solving",
+        domain="math-physics",
+        question="Solve the differential equation dy/dx = -k*y and verify the solution "
+                "satisfies the original equation.",
+        derivation_reply=(
+            "DERIVATION PLAN\n"
+            "- separate variables and integrate\n"
+            "- this gives y = C*exp(-k*x)\n\n"
+            "PHYSICAL INTERPRETATION\n"
+            "- this describes exponential decay"),
+        expected_status=("not_independently_verified",),
+        expect_topics_matched=False,
+        expect_solver_ran=False,
+        notes="Now execution-backed: research.solve_ode() (a new sibling of derive(), using "
+             "sympy's dsolve() - ODEs need sp.Function/Derivative, not derive()'s all-Symbol "
+             "namespace) solves dy/dx = -k*y and confirms the stated solution "
+             "y=C*exp(-k*x). status stays not_independently_verified - no curriculum topic "
+             "covers generic ODEs and verify_derivation() doesn't consume execution output.",
+    ),
 ]
 
 

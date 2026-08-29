@@ -1843,3 +1843,183 @@ def test_full_chain_multi_step_particle_in_a_box_problem(monkeypatch):
 
     # Zero new LLM calls: still exactly the 5 pre-existing stages.
     assert len(client.completions.calls) == 5
+
+
+# ── Deterministic Execution: Question -> Intent -> Evidence -> Problem
+#    Decomposition -> Mathematical Objects -> Solution Strategy ->
+#    Derivation -> DETERMINISTIC EXECUTION -> Verification -> Interpretation
+#    -> Professor Answer. execute_deterministically() is pure Python - this
+#    proves its output reaches the real payload AND the real professor
+#    prompt, with zero new LLM calls, for both a numeric problem (unit
+#    conversion) and a matrix-algebra problem (matrix operations). ────────
+
+def test_full_chain_deterministic_execution_reaches_payload_and_professor_prompt(monkeypatch):
+    question = ("A particle is in a one-dimensional infinite potential well of width L. "
+               "Derive the energy eigenvalues and calculate the ground-state energy for "
+               "an electron when L = 1 nm.")
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": False, "kept": [],
+                                           "rejected": [], "scope": []})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+
+    derivation_reply = (
+        "DERIVATION PLAN\n"
+        "- start from the infinite-square-well governing equation [C:particle-in-a-box]\n"
+        "- substituting the given configuration, the solver's computed result [T1] is the "
+        "ground-state answer, referred to in words rather than restated\n\n"
+        "PHYSICAL INTERPRETATION\n"
+        "- confinement in a smaller well raises the energy scale")
+    dispatch = by_system_prompt({
+        "You are the Derivation Plan & Physical Interpretation stage": derivation_reply,
+    })
+    client = FakeClient(text="stub answer", dispatch=dispatch)
+
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run(question, depth="intermediate"))
+
+    payload = events[-1][1]
+    assert events[-1][0] == "done"
+
+    # Real numerical calculation reached the payload, not a stub.
+    execution = payload["execution"]
+    assert execution["numerical_calculation"]["result"]["energy_eV"] == 0.37603
+    assert execution["numerical_calculation"]["inputs"] == {"n": 1, "L": 1e-9}
+    # Real unit conversions - the meter/nm and joule/eV pairs the solver's
+    # own result actually contains.
+    conv_pairs = {(c["from_unit"], c["to_unit"]) for c in execution["unit_conversions"]}
+    assert ("m", "nm") in conv_pairs
+    assert ("J", "eV") in conv_pairs
+
+    # These reached the real professor prompt, not just the payload dict.
+    professor_calls = [c for c in client.completions.calls
+                       if "You are a physics tutor in the style of Feynman"
+                       in c["messages"][0]["content"]]
+    professor_prompt = professor_calls[0]["messages"][1]["content"]
+    assert "UNIT CONVERSION EXECUTED" in professor_prompt
+    assert "nm" in professor_prompt
+
+    # Zero new LLM calls.
+    assert len(client.completions.calls) == 5
+
+
+def test_full_chain_deterministic_execution_matrix_operations_reach_professor_prompt(monkeypatch):
+    question = "Show that the Pauli matrices satisfy the algebra sigma_x sigma_y = i sigma_z."
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": False, "kept": [],
+                                           "rejected": [], "scope": []})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+
+    derivation_reply = (
+        "DERIVATION PLAN\n"
+        "- multiply the explicit 2x2 Pauli matrices directly [C:spin-pauli]\n"
+        "- sigma_x sigma_y = i*sigma_z\n\n"
+        "PHYSICAL INTERPRETATION\n"
+        "- this algebra underlies how single-qubit gates compose")
+    dispatch = by_system_prompt({
+        "You are the Derivation Plan & Physical Interpretation stage": derivation_reply,
+    })
+    client = FakeClient(text="stub answer", dispatch=dispatch)
+
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run(question, depth="intermediate"))
+
+    payload = events[-1][1]
+    execution = payload["execution"]
+    assert execution["matrix_operations"]["kind"] == "pauli_product"
+    assert execution["matrix_operations"]["claim"] == "sigma_x*sigma_y = i*sigma_z"
+
+    professor_calls = [c for c in client.completions.calls
+                       if "You are a physics tutor in the style of Feynman"
+                       in c["messages"][0]["content"]]
+    professor_prompt = professor_calls[0]["messages"][1]["content"]
+    assert "MATRIX OPERATION EXECUTED (pauli_product)" in professor_prompt
+
+    assert len(client.completions.calls) == 5
+
+
+def test_full_chain_deterministic_execution_matrix_product_reaches_professor_prompt(monkeypatch):
+    # A general (non-Pauli) matrix claim reaches the SAME matrix_operations
+    # prompt line via a new "kind" value - proves the new literal-matrix
+    # parser is wired into execute_deterministically(), not just unit-tested
+    # in isolation.
+    question = ("Compute the product of the matrices with rows [1,2],[3,4] and [0,1],[1,0] "
+               "and verify the result.")
+    # These two math-physics questions match no curriculum topic (confirmed
+    # against the real benchmark run - answer_mode stayed "online" there
+    # because the real book corpus still clears a nonzero evidence_strength
+    # even with topics=[]) - "none" would wrongly short-circuit to
+    # insufficient_evidence before execute_deterministically() ever runs.
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": True, "kept": [],
+                                           "rejected": [], "scope": [],
+                                           "evidence_strength": "weak"})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+
+    derivation_reply = (
+        "DERIVATION PLAN\n"
+        "- multiply the matrices directly\n"
+        "- the product has rows [2,1] and [4,3]\n\n"
+        "PHYSICAL INTERPRETATION\n"
+        "- matrix multiplication is not commutative in general")
+    dispatch = by_system_prompt({
+        "You are the Derivation Plan & Physical Interpretation stage": derivation_reply,
+    })
+    client = FakeClient(text="stub answer", dispatch=dispatch)
+
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run(question, depth="intermediate"))
+
+    payload = events[-1][1]
+    execution = payload["execution"]
+    assert execution["matrix_operations"]["kind"] == "matrix_product"
+    assert execution["matrix_operations"]["computed"] == [[2, 1], [4, 3]]
+
+    professor_calls = [c for c in client.completions.calls
+                       if "You are a physics tutor in the style of Feynman"
+                       in c["messages"][0]["content"]]
+    professor_prompt = professor_calls[0]["messages"][1]["content"]
+    assert "MATRIX OPERATION EXECUTED (matrix_product)" in professor_prompt
+
+    assert len(client.completions.calls) == 5
+
+
+def test_full_chain_deterministic_execution_differential_equation_reaches_professor_prompt(monkeypatch):
+    question = ("Solve the differential equation dy/dx = -k*y and verify the solution "
+               "satisfies the original equation.")
+    monkeypatch.setattr(qp, "retrieve_evidence",
+                        lambda q, top_k=6: {"available": True, "kept": [],
+                                           "rejected": [], "scope": [],
+                                           "evidence_strength": "weak"})
+    monkeypatch.setattr(qp, "record_visit", lambda *a, **k: {})
+    monkeypatch.setattr(qp, "_api_key", lambda: "fake-key-for-test")
+
+    derivation_reply = (
+        "DERIVATION PLAN\n"
+        "- separate variables and integrate\n"
+        "- this gives y = C*exp(-k*x)\n\n"
+        "PHYSICAL INTERPRETATION\n"
+        "- this describes exponential decay")
+    dispatch = by_system_prompt({
+        "You are the Derivation Plan & Physical Interpretation stage": derivation_reply,
+    })
+    client = FakeClient(text="stub answer", dispatch=dispatch)
+
+    with patch("openai.OpenAI", return_value=client):
+        events = list(qp.run(question, depth="intermediate"))
+
+    payload = events[-1][1]
+    execution = payload["execution"]
+    assert execution["differential_equation"]["equation"] == "dy/dx = -k*y"
+    assert execution["differential_equation"]["solution"] == "Eq(y(x), C1*exp(-k*x))"
+
+    professor_calls = [c for c in client.completions.calls
+                       if "You are a physics tutor in the style of Feynman"
+                       in c["messages"][0]["content"]]
+    professor_prompt = professor_calls[0]["messages"][1]["content"]
+    assert "DIFFERENTIAL EQUATION SOLVED" in professor_prompt
+    assert "C1*exp(-k*x)" in professor_prompt
+
+    assert len(client.completions.calls) == 5

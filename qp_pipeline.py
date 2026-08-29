@@ -38,6 +38,7 @@ try:
     from .llm_errors import ProviderError, classify_llm_error, is_llm_sdk_error
     from .model_gateway import get_gateway
     from .verification import verify_derivation
+    from .deterministic_execution import execute_deterministically
     from .tutor import (DEPTH_DIRECTIVE, MODE_DIRECTIVE, MODEL_DEEP, MODEL_FAST,
                         MIN_TOPIC_SCORE, _api_key, _apply_secondary_floor, _familiarity,
                         _score_topics, compute_for, record_visit, retrieve_evidence,
@@ -49,6 +50,7 @@ except ImportError:
     from llm_errors import ProviderError, classify_llm_error, is_llm_sdk_error
     from model_gateway import get_gateway
     from verification import verify_derivation
+    from deterministic_execution import execute_deterministically
     from tutor import (DEPTH_DIRECTIVE, MODE_DIRECTIVE, MODEL_DEEP, MODEL_FAST,
                        MIN_TOPIC_SCORE, _api_key, _apply_secondary_floor, _familiarity,
                        _score_topics, compute_for, record_visit, retrieve_evidence,
@@ -818,6 +820,11 @@ the evidence is too thin to derive something rigorously, say what step you \
 can support and name the gap - a partial derivation the reader can trust \
 beats a complete one you invented.
 
+A MATRIX OPERATION EXECUTED, UNIT CONVERSION EXECUTED, or DIFFERENTIAL \
+EQUATION SOLVED line, when present, is a real computation the pipeline \
+already ran (like [T1]/[X1]) - refer to it in words, never restate the raw \
+matrix/equation or recompute it yourself.
+
 When a VERIFICATION result is supplied, it is a deterministic check the \
 pipeline already ran, not your opinion - treat it as ground truth. State \
 plainly whether the math was verified mathematically, partially verified, \
@@ -933,7 +940,7 @@ def knowledge_trailer(topics, book_ev, excluded) -> str:
 
 def professor_engine(question, u, topics, book_ev, papers, computed, symbolic,
                      assessment, reasoning, mode, depth, mastery, client, budget,
-                     sides=None, pack=None, verification=None):
+                     sides=None, pack=None, execution=None, verification=None):
     excluded = _off_topic_tags(assessment)
     parts = ([curriculum_block(topics, sides)] if (topics or sides) else [])
     parts += [f"[{c['tag']}] ({c['source']} — {c['shelf'] if 'shelf' in c else 'physics'}"
@@ -970,6 +977,23 @@ def professor_engine(question, u, topics, book_ev, papers, computed, symbolic,
             extra += f"\nPREREQUISITE CONCEPTS (may help scaffold the explanation): {', '.join(pack.prerequisite_concepts[:5])}"
     if reasoning.get("text"):
         extra += f"\n\nDERIVATION PLAN & PHYSICAL INTERPRETATION (expand, do not repeat verbatim):\n{reasoning['text']}"
+    # Numerical calculation and symbolic algebra are already covered above
+    # via [T1]/[X1] - only the two capabilities not otherwise surfaced
+    # (matrix operations, unit conversion) get their own explicit mention.
+    if execution is not None and execution.get("matrix_operations"):
+        mo = execution["matrix_operations"]
+        extra += (f"\n\nMATRIX OPERATION EXECUTED ({mo['kind']}): the derivation's claim "
+                 f"{mo['claim']!r} was checked by direct matrix computation, which gives "
+                 f"{mo['computed']}. Refer to this in words; do not restate the matrix.")
+    if execution is not None and execution.get("unit_conversions"):
+        conv_strs = [f"{c['from_value']} {c['from_unit']} = {c['to_value']} {c['to_unit']}"
+                    for c in execution["unit_conversions"]]
+        extra += f"\n\nUNIT CONVERSION EXECUTED: {'; '.join(conv_strs)}"
+    if execution is not None and execution.get("differential_equation"):
+        de = execution["differential_equation"]
+        extra += (f"\n\nDIFFERENTIAL EQUATION SOLVED: {de['equation']} has general solution "
+                 f"{de['solution']} (solved directly by sympy). Refer to this in words; do "
+                 f"not restate the equation.")
     if verification is not None:
         extra += (f"\n\nVERIFICATION (deterministic checks, not your own judgement): "
                  f"status={verification.status} · passed={[p['check'] for p in verification.passed]} · "
@@ -1396,7 +1420,7 @@ def run(question: str, mode: str = "explain",
                         "sentences": 0, "uncited_sentences": 0}
 
     def _done(prose, answer_mode, assessment, reasoning, checks, extra_honesty_note,
-             provider_error=None, pack=None, verification=None):
+             provider_error=None, pack=None, execution=None, verification=None):
         payload = {
             "question": question, "mode": mode, "depth": depth, "prose": prose,
             "understanding": u, "routing": r,
@@ -1437,6 +1461,8 @@ def run(question: str, mode: str = "explain",
                 "assumptions": pack.assumptions,
                 "strategy": pack.strategy,
             }
+        if execution is not None:
+            payload["execution"] = execution
         if verification is not None:
             payload["verification"] = verification.to_dict()
         return payload
@@ -1510,20 +1536,27 @@ def run(question: str, mode: str = "explain",
                                             f"{len(reasoning['text'].split())} words"),
                                 "reasoning": reasoning}
 
-    # ── VERIFICATION: deterministic, zero LLM cost - runs on whatever the
-    # Derivation stage produced (even at intro depth, where reasoning is
-    # skipped but computed/symbolic results still exist to check). Reported
+    # ── DETERMINISTIC EXECUTION + VERIFICATION: both zero LLM cost, both run
+    # on whatever the Derivation stage produced (even at intro depth, where
+    # reasoning is skipped but computed/symbolic results still exist).
+    # Execution makes the real SymPy/Python computation (numerical, symbolic,
+    # matrix, unit conversion) an explicit record BEFORE verification judges
+    # the derivation against it - the same distinction as "here is what was
+    # actually computed" vs. "here is whether the claim matches it". Reported
     # as a second "reasoning" event rather than a new SSE stage name - the
     # frontend already re-renders a stage's row each time it fires (exactly
-    # how every other multi-yield stage in this function already works),
-    # and inventing a new stage name here would silently drift out of sync
-    # with the frontend's listener list the same way it once already did.
+    # how every other multi-yield stage in this function already works), and
+    # inventing a new stage name here would silently drift out of sync with
+    # the frontend's listener list the same way it once already did.
+    execution = None
     verification = None
     if provider_error is None:
+        execution = execute_deterministically(question, u, pack, reasoning, computed, symbolic)
         verification = verify_derivation(question, u, pack, reasoning, computed, symbolic)
         yield "reasoning", {"msg": f"verification: {verification.status} "
                                    f"({len(verification.passed)} passed, {len(verification.failed)} failed)",
-                            "reasoning": reasoning, "verification": verification.to_dict()}
+                            "reasoning": reasoning, "execution": execution,
+                            "verification": verification.to_dict()}
 
     if provider_error is None:
         box: dict = {}
@@ -1533,7 +1566,8 @@ def run(question: str, mode: str = "explain",
                 box["prose"] = professor_engine(question, u, topics, book_ev, papers,
                                                 computed, symbolic, assessment, reasoning,
                                                 mode, depth, mastery, client, budget, sides=sides,
-                                                pack=pack, verification=verification)
+                                                pack=pack, execution=execution,
+                                                verification=verification)
             except Exception as exc:
                 box["exc"] = exc
 
@@ -1587,10 +1621,12 @@ def run(question: str, mode: str = "explain",
         if pack is None:
             pack = build_evidence_pack(question, u, topics, sides, book_ev, papers,
                                        assessment, computed, symbolic)
-        # Verification is deterministic, so it runs offline too - it never
-        # needed the LLM that just failed. Whatever the Derivation stage
-        # managed to produce before the failure (or nothing, if it failed
-        # on the very first call) is what gets checked.
+        # Execution and verification are both deterministic, so they run
+        # offline too - neither ever needed the LLM that just failed.
+        # Whatever the Derivation stage managed to produce before the
+        # failure (or nothing, if it failed on the very first call) is what
+        # gets executed and checked.
+        execution = execute_deterministically(question, u, pack, reasoning, computed, symbolic)
         verification = verify_derivation(question, u, pack, reasoning, computed, symbolic)
         quality = evidence_quality(topics, book_ev, sides)
         if quality == "usable":
@@ -1598,7 +1634,8 @@ def run(question: str, mode: str = "explain",
             yield "done", _done(prose, "offline", assessment, reasoning, checks,
                                 "DeepSeek is unavailable - this is assembled directly from "
                                 "the curriculum and your library, with no AI reasoning applied.",
-                                provider_error=provider_error, pack=pack, verification=verification)
+                                provider_error=provider_error, pack=pack, execution=execution,
+                                verification=verification)
         else:
             prose = offline_synthesis(question, u, topics, sides, book_ev, computed,
                                       degraded=(quality == "weak"),
@@ -1607,7 +1644,8 @@ def run(question: str, mode: str = "explain",
                                 assessment, reasoning, checks,
                                 "DeepSeek is unavailable and nothing retrieved is strong "
                                 "enough to confidently explain - showing related material only.",
-                                provider_error=provider_error, pack=pack, verification=verification)
+                                provider_error=provider_error, pack=pack, execution=execution,
+                                verification=verification)
         return
 
     trailer = knowledge_trailer(topics, book_ev, _off_topic_tags(assessment))
@@ -1618,7 +1656,7 @@ def run(question: str, mode: str = "explain",
     yield "done", _done(prose, "online", assessment, reasoning, checks,
                         "[C:] curriculum · [S#] your books · [A#] arXiv · [T1] solver · "
                         "[X1] symbolic check. Untagged sentences are the model's synthesis.",
-                        pack=pack, verification=verification)
+                        pack=pack, execution=execution, verification=verification)
 
 
 def answer(question: str, mode: str = "explain", depth: str = "intermediate") -> dict:
