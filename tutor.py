@@ -26,10 +26,10 @@ from typing import Iterator
 
 try:                       # package import (local) / flat script (deployment)
     from .library import TOPICS
-    from .physics import M_E, SOLVERS, solve
+    from .physics import GATES, M_E, SOLVERS, solve
 except ImportError:
     from library import TOPICS
-    from physics import M_E, SOLVERS, solve
+    from physics import GATES, M_E, SOLVERS, solve
 
 # ── configuration ─────────────────────────────────────────────────────────
 # The gateway lives in the sibling Agentic-AI workspace. Kept as a path bridge
@@ -396,6 +396,34 @@ def _harmonic(t: str):
     return {"n": n, "omega": float(m.group(1))} if (n is not None and m) else None
 
 
+# Common English names for the single-qubit gates physics.GATES actually
+# defines, checked before falling back to a bare "X gate"/"H gate" mention -
+# release-readiness Phase B: physics._solve_qubit() (state, Bloch vector,
+# measurement probabilities) already existed and was already correct, but
+# had no entry here at all, so compute_for() could never reach it - every
+# qubit/Bloch-sphere question silently fell through to "ran": False
+# regardless of what numbers the question gave.
+_GATE_NAMES = {"hadamard": "H", "pauli-x": "X", "pauli x": "X", "bit-flip": "X", "bit flip": "X",
+              "pauli-y": "Y", "pauli y": "Y", "pauli-z": "Z", "pauli z": "Z",
+              "phase-flip": "Z", "phase flip": "Z", "identity": "I"}
+
+
+def _qubit(t: str):
+    t_low = t.lower()
+    a_m = re.search(r"alpha\s*=\s*(-?\d+(?:\.\d+)?)", t_low)
+    b_m = re.search(r"beta\s*=\s*(-?\d+(?:\.\d+)?)", t_low)
+    if not (a_m and b_m):
+        return None
+    gate = next((code for name, code in _GATE_NAMES.items() if name in t_low), None)
+    if gate is None:
+        m = re.search(r"\b([hxyzst])[\s-]*gate\b", t_low)
+        if m and m.group(1).upper() in GATES:
+            gate = m.group(1).upper()
+    if gate is None:
+        return None
+    return {"gate": gate, "alpha": float(a_m.group(1)), "beta": float(b_m.group(1))}
+
+
 TOPIC_TO_SOLVER = {
     "particle-in-a-box": "particle-in-a-box", "harmonic-oscillator": "harmonic-oscillator",
     "hydrogen-atom": "hydrogen-atom", "bohr-model": "hydrogen-transition",
@@ -413,6 +441,7 @@ _EXTRACT = {
     "uncertainty-principle": lambda t: ({"delta_x_m": _delta_x_m(t)} if _delta_x_m(t) is not None else None),
     "de-broglie":        _de_broglie,
     "harmonic-oscillator": _harmonic,
+    "qubit":             _qubit,
 }
 
 

@@ -33,11 +33,15 @@ def test_scenario_1_quantum_harmonic_oscillator_correct_derivation_verifies():
     computed = {"ran": True, "result": physics.solve("harmonic-oscillator", n=0, omega=1e14)}
     pack = EvidencePack(question="what is the zero-point energy of a quantum harmonic oscillator",
                         topics=[_topic("harmonic-oscillator")])
-    reasoning = {"derivation_plan": "E_0 = hbar*omega/2, which comes out to 0.032911 eV.", "text": "x"}
+    reasoning = {"derivation_plan": "E_0 = hbar*omega/2, which comes out to 0.032911 eV, and as "
+                                    "n -> infinity the energy grows without bound.", "text": "x"}
     result = v.verify_derivation("zero-point energy of a QHO", {}, pack, reasoning, computed, None)
     assert result.status == "verified_mathematically"
     assert any(p["check"] == "known_result" for p in result.passed)
-    # a real, curated large-n limiting-case check also fires for this topic
+    # a real, curated large-n limiting-case check also fires for this topic -
+    # release-readiness Phase A: now only when the derivation actually
+    # STATES the large-n claim (added above), not merely because the topic
+    # is relevant.
     assert any(p["check"] == "limiting_case" for p in result.passed)
 
 
@@ -59,7 +63,10 @@ def test_scenario_2_schrodinger_equation_citation_and_identity_are_checked():
 def test_scenario_3_particle_in_a_box_boundary_conditions_and_known_result():
     computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
     assert computed["result"]["energy_eV"] == 1.504121
-    boundary = v.check_boundary_conditions(None, computed)
+    # release-readiness Phase A: boundary_conditions now requires the
+    # derivation to actually state the boundary values, not merely be about
+    # the right system.
+    boundary = v.check_boundary_conditions(None, computed, "psi(0) = psi(L) = 0 at the walls")
     assert boundary.status == "pass"
     correct = v.check_known_result("the n=2 energy level is 1.504121 eV", computed)
     assert correct.status == "pass"
@@ -71,12 +78,14 @@ def test_scenario_4_classical_harmonic_oscillator_conservation_and_classical_lim
     pack = EvidencePack(question="analyze the total energy of a classical harmonic oscillator "
                                  "using simple harmonic motion",
                         topics=[_topic("harmonic-oscillator")])
-    conservation = v.check_conservation_law(pack)
+    # release-readiness Phase A: both checks now require the derivation to
+    # actually state the claim, not merely be about the right system.
+    conservation = v.check_conservation_law(pack, "energy is conserved for this oscillator")
     assert conservation.status == "pass"
     assert "dE/dt = 0" in conservation.detail
     # the quantum-side curriculum topic's own hbar -> 0 classical limit
     computed = {"ran": True, "result": {"topic": "harmonic-oscillator"}}
-    classical_limit = v.check_classical_limit(computed)
+    classical_limit = v.check_classical_limit(computed, "as hbar -> 0 the zero-point energy vanishes")
     assert classical_limit.status == "pass"
     assert "hbar -> 0" in classical_limit.detail
 
@@ -91,7 +100,9 @@ def test_scenario_5_hamiltonian_mechanics_has_no_curriculum_topic_but_still_veri
     assert "hamiltonian-mechanics" not in TOPICS
     pack = EvidencePack(question="use Hamiltonian mechanics to show energy is conserved "
                                  "for a simple harmonic oscillator")
-    result = v.check_conservation_law(pack)
+    # release-readiness Phase A: the derivation must also actually state the
+    # conservation claim, not merely be about a relevant system/question.
+    result = v.check_conservation_law(pack, "energy is conserved for this system")
     assert result.status == "pass"
 
 

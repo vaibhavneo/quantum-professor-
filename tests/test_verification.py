@@ -161,8 +161,18 @@ def test_verify_derivation_incorrect_pauli_claim_does_not_reach_verified_mathema
 
 def test_boundary_conditions_pass_for_particle_in_a_box():
     computed = {"ran": True, "result": {"topic": "particle-in-a-box"}}
-    r = v.check_boundary_conditions(None, computed)
+    text = "imposing the boundary conditions psi(0) = psi(L) = 0 on the infinite well"
+    r = v.check_boundary_conditions(None, computed, text)
     assert r.status == "pass"
+
+
+def test_boundary_conditions_warns_when_relevant_but_no_extractable_claim():
+    # release-readiness Phase A: relevance alone is no longer sufficient -
+    # the derivation must actually STATE the boundary values for this to
+    # pass, not just be about the right system.
+    computed = {"ran": True, "result": {"topic": "particle-in-a-box"}}
+    r = v.check_boundary_conditions(None, computed, "the energy comes out to 5 eV")
+    assert r.status == "warning"
 
 
 def test_boundary_conditions_not_applicable_otherwise():
@@ -174,17 +184,25 @@ def test_boundary_conditions_not_applicable_otherwise():
 
 def test_limiting_case_harmonic_oscillator():
     computed = {"ran": True, "result": {"topic": "harmonic-oscillator"}}
-    assert v.check_limiting_case(computed).status == "pass"
+    text = "as n -> infinity, the energy grows without bound"
+    assert v.check_limiting_case(computed, text).status == "pass"
 
 
 def test_limiting_case_particle_in_a_box():
     computed = {"ran": True, "result": {"topic": "particle-in-a-box"}}
-    assert v.check_limiting_case(computed).status == "pass"
+    text = "in the large-n limit the energy diverges"
+    assert v.check_limiting_case(computed, text).status == "pass"
+
+
+def test_limiting_case_warns_when_relevant_but_no_extractable_claim():
+    computed = {"ran": True, "result": {"topic": "particle-in-a-box"}}
+    assert v.check_limiting_case(computed, "the energy comes out to 5 eV").status == "warning"
 
 
 def test_classical_limit_harmonic_oscillator():
     computed = {"ran": True, "result": {"topic": "harmonic-oscillator"}}
-    r = v.check_classical_limit(computed)
+    text = "as hbar -> 0 the zero-point energy vanishes, recovering the classical limit"
+    r = v.check_classical_limit(computed, text)
     assert r.status == "pass"
     assert "hbar -> 0" in r.detail
 
@@ -194,13 +212,18 @@ def test_classical_limit_not_applicable_for_uncurated_topic():
     assert v.check_classical_limit(computed).status == "not_applicable"
 
 
+def test_classical_limit_warns_when_relevant_but_no_extractable_claim():
+    computed = {"ran": True, "result": {"topic": "harmonic-oscillator"}}
+    assert v.check_classical_limit(computed, "the energy comes out to 5 eV").status == "warning"
+
+
 # ── 8. Conservation-law check (real sympy differentiation) ─────────────────
 
 def test_conservation_law_passes_for_shm_via_topic_id():
     pack = EvidencePack(question="q", topics=[_topic("harmonic-oscillator")]) \
         if "harmonic-oscillator" in TOPICS else EvidencePack(
             question="classical harmonic oscillator Hamiltonian mechanics")
-    r = v.check_conservation_law(pack)
+    r = v.check_conservation_law(pack, "dE/dt = 0, so energy is conserved")
     assert r.status == "pass"
     assert "dE/dt = 0" in r.detail
 
@@ -213,8 +236,17 @@ def test_conservation_law_passes_for_hamiltonian_mechanics_conservation_claim_te
     # regression test below for that distinction).
     pack = EvidencePack(question="Use Hamiltonian mechanics to show energy is conserved for a "
                                  "simple harmonic oscillator")
-    r = v.check_conservation_law(pack)
+    r = v.check_conservation_law(pack, "energy is conserved for this system")
     assert r.status == "pass"
+
+
+def test_conservation_law_warns_when_relevant_but_no_extractable_claim():
+    # release-readiness Phase A: naming the system (via topic or question
+    # text) makes the check RELEVANT, but no longer earns a "pass" by
+    # itself - the derivation must actually state the conservation claim.
+    pack = EvidencePack(question="q", topics=[_topic("harmonic-oscillator")])
+    r = v.check_conservation_law(pack, "the energy comes out to 5 eV")
+    assert r.status == "warning"
 
 
 def test_conservation_law_does_not_fire_on_hamiltonian_mechanics_wording_alone():
@@ -251,13 +283,16 @@ def test_conservation_law_does_not_fire_for_unrelated_problem_merely_mentioning_
     assert r.status == "not_applicable"
 
 
-def test_conservation_law_primary_topic_match_is_sufficient_even_without_conservation_wording():
-    # the OTHER legitimate trigger: a genuine primary curriculum match for
-    # harmonic-oscillator is enough on its own, matching
-    # test_conservation_law_passes_for_shm_via_topic_id above.
+def test_conservation_law_primary_topic_match_alone_is_relevant_but_no_longer_a_free_pass():
+    # UPDATED for release-readiness Phase A: a primary curriculum match for
+    # harmonic-oscillator makes this check RELEVANT (not_applicable would be
+    # wrong), but a genuine "pass" additionally requires the derivation to
+    # have actually stated the conservation claim - see
+    # test_conservation_law_passes_for_shm_via_topic_id for the version
+    # that supplies that claim and does reach "pass".
     pack = EvidencePack(question="q", topics=[_topic("harmonic-oscillator")])
     r = v.check_conservation_law(pack)
-    assert r.status == "pass"
+    assert r.status == "warning"
 
 
 # ── REGRESSION: a SECONDARY (non-primary) topic match must not be able to
@@ -593,20 +628,29 @@ def test_hydrogen_transition_genuinely_fabricated_citation_still_detected():
     assert any("T2" in f["detail"] for f in result.failed)
 
 
-# ── release-readiness Phase 5 (adversarial correctness): documented, real
-# limitations found by testing claim types the original 6 planted-error
-# benchmark problems never targeted. These are NOT bugs fixed here - fixing
-# them would mean teaching boundary_conditions/limiting_case/classical_limit/
-# conservation_law to parse and compare against the derivation's OWN stated
-# claim, which none of them do today; they each independently RE-DERIVE one
-# fixed, already-true fact (e.g. "psi vanishes at the well's walls") and
-# report pass/fail on THAT, regardless of what the surrounding prose
-# actually asserts. That is real, load-bearing verification (the fact
-# itself is genuinely checked, not asserted) - it is just not the same as
-# checking the DERIVATION'S claim. These tests exist so this gap is a known,
-# tracked property of the system rather than a silent assumption.
+# ── release-readiness Phase A: the independent-reverification blind spot
+# found during Phase 5 adversarial testing is now FIXED for all four checks
+# (boundary_conditions, limiting_case, classical_limit, conservation_law) -
+# each now extracts the derivation's own claim about its specific fact and
+# compares it against the canonical (always freshly sympy-computed) result,
+# instead of reporting "pass" purely because the topic is relevant. These
+# tests prove, end to end through verify_derivation(), that an explicitly
+# false physical claim can never reach verified_mathematically via one of
+# these checks - for each check: a correct claim (pass), an explicitly
+# wrong claim (fail, never masked into verified_mathematically), and an
+# ambiguous/non-extractable claim (warning, not a silent pass).
 
-def test_known_limitation_boundary_conditions_check_ignores_a_contradicting_claim():
+def test_fixed_boundary_conditions_correct_claim_passes():
+    computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
+    pack = EvidencePack(question="q", topics=[_topic("particle-in-a-box")])
+    correct_claim = "imposing psi(0) = psi(L) = 0 on the infinite well gives the allowed modes"
+    reasoning = {"derivation_plan": correct_claim, "text": correct_claim}
+    result = v.verify_derivation("q", {}, pack, reasoning, computed, None)
+    bc = next(c for c in result.checks if c["name"] == "boundary_conditions")
+    assert bc["status"] == "pass"
+
+
+def test_fixed_boundary_conditions_wrong_claim_never_reaches_verified_mathematically():
     computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
     pack = EvidencePack(question="q", topics=[_topic("particle-in-a-box")])
     wrong_claim = ("the wavefunction does NOT need to vanish at the walls of the infinite "
@@ -614,23 +658,73 @@ def test_known_limitation_boundary_conditions_check_ignores_a_contradicting_clai
                   "approximately infinite")
     reasoning = {"derivation_plan": wrong_claim, "text": wrong_claim}
     result = v.verify_derivation("q", {}, pack, reasoning, computed, None)
-    # Documents the actual (limited) behavior: boundary_conditions independently
-    # reconfirms psi(0)=psi(L)=0 - a true fact - without ever reading that the
-    # text asserted the opposite, so the false prose claim is not caught.
-    assert result.status == "verified_mathematically"
     bc = next(c for c in result.checks if c["name"] == "boundary_conditions")
-    assert bc["status"] == "pass"
+    assert bc["status"] == "fail"
+    assert result.status != "verified_mathematically"
 
 
-def test_known_limitation_conservation_law_check_ignores_a_contradicting_claim():
+def test_fixed_boundary_conditions_ambiguous_claim_is_not_a_silent_pass():
+    computed = {"ran": True, "result": physics.solve("particle-in-a-box", n=2, L=1e-9)}
+    pack = EvidencePack(question="q", topics=[_topic("particle-in-a-box")])
+    vague = "the solver's computed result [T1] gives the answer, referred to in words"
+    reasoning = {"derivation_plan": vague, "text": vague}
+    result = v.verify_derivation("q", {}, pack, reasoning, computed, None)
+    bc = next(c for c in result.checks if c["name"] == "boundary_conditions")
+    assert bc["status"] == "warning"
+
+
+def test_fixed_limiting_case_correct_claim_passes():
+    computed = {"ran": True, "result": {"topic": "particle-in-a-box"}}
+    text = "as n -> infinity the energy diverges without bound"
+    r = v.check_limiting_case(computed, text)
+    assert r.status == "pass"
+
+
+def test_fixed_limiting_case_wrong_claim_fails_not_verified():
+    computed = {"ran": True, "result": {"topic": "particle-in-a-box"}}
+    text = "as n -> infinity the energy levels do NOT grow without bound, they approach a fixed cap"
+    r = v.check_limiting_case(computed, text)
+    assert r.status == "fail"
+
+
+def test_fixed_classical_limit_correct_claim_passes():
+    computed = {"ran": True, "result": {"topic": "harmonic-oscillator"}}
+    text = "as hbar -> 0 the zero-point energy vanishes"
+    r = v.check_classical_limit(computed, text)
+    assert r.status == "pass"
+
+
+def test_fixed_classical_limit_wrong_claim_fails_not_verified():
+    computed = {"ran": True, "result": {"topic": "harmonic-oscillator"}}
+    text = "as hbar -> 0 the zero-point energy does NOT vanish, it stays fixed"
+    r = v.check_classical_limit(computed, text)
+    assert r.status == "fail"
+
+
+def test_fixed_conservation_law_correct_claim_passes():
+    pack = EvidencePack(question="q", topics=[_topic("harmonic-oscillator")])
+    r = v.check_conservation_law(pack, "energy is conserved for this oscillator")
+    assert r.status == "pass"
+
+
+def test_fixed_conservation_law_wrong_claim_never_reaches_verified_mathematically():
     pack = EvidencePack(question="q", topics=[_topic("harmonic-oscillator")])
     wrong_claim = ("energy is NOT conserved for the classical harmonic oscillator - it decays "
                   "over each cycle due to the restoring force")
     reasoning = {"derivation_plan": wrong_claim, "text": wrong_claim}
     result = v.verify_derivation("q", {}, pack, reasoning, None, None)
-    assert result.status == "verified_mathematically"
     cl = next(c for c in result.checks if c["name"] == "conservation_law")
-    assert cl["status"] == "pass"
+    assert cl["status"] == "fail"
+    assert result.status != "verified_mathematically"
+
+
+def test_fixed_conservation_law_ambiguous_claim_is_not_a_silent_pass():
+    pack = EvidencePack(question="q", topics=[_topic("harmonic-oscillator")])
+    vague = "the Hamiltonian has no explicit time dependence"
+    reasoning = {"derivation_plan": vague, "text": vague}
+    result = v.verify_derivation("q", {}, pack, reasoning, None, None)
+    cl = next(c for c in result.checks if c["name"] == "conservation_law")
+    assert cl["status"] == "warning"
 
 
 def test_known_limitation_physical_interpretation_correctness_is_not_checked():

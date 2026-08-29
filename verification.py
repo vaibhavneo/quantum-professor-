@@ -324,11 +324,60 @@ def check_operator_consistency(text: str, pack) -> CheckResult:
                        "no operator relation (commutator/Pauli) claim in this derivation")
 
 
-def check_boundary_conditions(pack, computed: dict | None) -> CheckResult:
+# ── claim extraction: turns these four checks from "independently re-derive
+# one fixed fact and pass regardless of what the text says" into "read what
+# the text actually claims about that fact, then compare." Deliberately
+# conservative - CheckResult.detail always states the REAL canonical result
+# (computed fresh via sympy, exactly as before), but pass/fail now hinges on
+# whether the derivation's own words agree or explicitly disagree with it;
+# no match at either polarity means the claim could not be safely read out
+# of the text, which must never be silently treated as agreement.
+_GENERIC_NEGATION_RE = re.compile(
+    r"\b(not|n't|never|isn't|doesn't|cannot|can't|no longer|non-?zero|nonzero)\b", re.I)
+
+
+def _clause_around(text: str, start: int, end: int) -> str:
+    """The sentence/clause containing a match, so a negation word from an
+    EARLIER, unrelated sentence can't flip a later, unrelated claim's
+    polarity - only a negation genuinely local to this claim counts."""
+    clause_start = max(text.rfind(".", 0, start), text.rfind("\n", 0, start),
+                       text.rfind(";", 0, start), text.rfind("- ", 0, start)) + 1
+    clause_end = min([e for e in (text.find(".", end), text.find("\n", end),
+                                  text.find(";", end)) if e != -1] or [len(text)])
+    return text[clause_start:clause_end]
+
+
+def _extract_claim_polarity(text: str, affirm_re: re.Pattern,
+                            negation_re: re.Pattern | None = None) -> str | None:
+    """Finds the FIRST clause that states the fact affirm_re names, then
+    checks that same clause for a local negation. Returns "agrees",
+    "contradicts", or None when the derivation never states anything
+    matching this specific fact at all - the safe default, never guessed."""
+    text = text or ""
+    m = affirm_re.search(text)
+    if not m:
+        return None
+    clause = _clause_around(text, m.start(), m.end())
+    neg_re = negation_re or _GENERIC_NEGATION_RE
+    return "contradicts" if neg_re.search(clause) else "agrees"
+
+
+_BOUNDARY_ZERO_RE = re.compile(
+    r"psi\s*\(\s*0\s*\)\s*=\s*psi\s*\(\s*l\s*\)\s*=\s*0"
+    r"|psi\s*\(\s*0\s*\)\s*=\s*0|psi\s*\(\s*l\s*\)\s*=\s*0"
+    r"|(?:wavefunction|psi)\b[^.;\n]{0,40}(?:vanish\w*|(?:is|goes?|drops?)\s+(?:to\s+)?zero)"
+    r"|vanish\w*[^.;\n]{0,25}\bat\s+the\s+(?:wall|boundar\w*|edge)", re.I)
+
+
+def check_boundary_conditions(pack, computed: dict | None, text: str = "") -> CheckResult:
     """5. Boundary/initial-condition consistency - topic-scoped to the one
     boundary-value problem this curriculum actually teaches in closed form:
     the infinite square well, where psi(0)=psi(L)=0 is the defining
-    condition. Verified symbolically, not asserted.
+    condition. The canonical fact is always verified fresh via sympy; what
+    changed is that a "pass" now additionally requires the derivation to
+    have actually STATED that fact (or its exact opposite) - reading the
+    topic alone, or a bare mention of "boundary conditions" with no content,
+    is not treated as a claim either way.
 
     Only the PRIMARY matched topic (pack.topics[0]) counts, never any topic
     anywhere in the list - a secondary, coincidental-overlap match (e.g. a
@@ -348,61 +397,127 @@ def check_boundary_conditions(pack, computed: dict | None) -> CheckResult:
         psi = sp.sin(n * sp.pi * x / L)
         at_0 = psi.subs(x, 0)
         at_L = psi.subs(x, L)
-        if at_0 == 0 and sp.simplify(at_L) == 0:
-            return CheckResult("boundary_conditions", "pass",
-                               "psi(0)=0 and psi(L)=0 confirmed for sin(n*pi*x/L)")
-        return CheckResult("boundary_conditions", "fail",
-                           f"boundary values did not vanish: psi(0)={at_0}, psi(L)={at_L}")
+        canonical_holds = at_0 == 0 and sp.simplify(at_L) == 0
+        canonical_fact = f"psi(0)={at_0}, psi(L)={sp.simplify(at_L)}"
     except Exception as exc:
         return CheckResult("boundary_conditions", "warning", f"boundary check errored: {exc}")
 
+    claim = _extract_claim_polarity(text, _BOUNDARY_ZERO_RE)
+    if claim is None:
+        return CheckResult("boundary_conditions", "warning",
+                           f"canonical result ({canonical_fact}) computed, but the derivation "
+                           "states no extractable claim about the boundary values to check it "
+                           "against")
+    agrees_with_canonical = (claim == "agrees") == canonical_holds
+    if agrees_with_canonical:
+        return CheckResult("boundary_conditions", "pass",
+                           f"derivation's boundary-value claim matches the canonical result "
+                           f"({canonical_fact})")
+    return CheckResult("boundary_conditions", "fail",
+                       f"derivation's boundary-value claim contradicts the canonical result "
+                       f"({canonical_fact})")
 
-def check_limiting_case(computed: dict | None) -> CheckResult:
+
+_LIMIT_UNBOUNDED_RE = re.compile(
+    r"(?:as\s+n\s*(?:->|→|goes?\s+to|approaches)\s*(?:infinity|∞|oo)"
+    r"|(?:in\s+the\s+)?large[\s-]n\s+limit)[^.;\n]{0,60}"
+    r"(?:diverg\w*|unbounded|without\s+(?:bound|limit)|grows?\s+without|no\s+upper\s+bound"
+    r"|increases?\s+without\s+(?:bound|limit))", re.I)
+
+_CLASSICAL_LIMIT_RE = re.compile(
+    r"(?:as\s+(?:hbar|ℏ)\s*(?:->|→|goes?\s+to|approaches)\s*0"
+    r"|classical\s+limit)[^.;\n]{0,80}"
+    # a small permissive gap (not bare \s+) before "vanish"/"zero" so a
+    # negation word sitting between "energy" and "vanishes" (e.g. "energy
+    # does NOT vanish") is still found as a candidate claim to check the
+    # polarity of, rather than missing the match entirely.
+    r"(?:zero[\s-]point\s+energy[^.;\n]{0,20}(?:vanish\w*|(?:goes?|drops?)\s+to\s+zero)"
+    r"|no\s+minimum\s+energy|energy[^.;\n]{0,20}(?:can\s+be\s+)?zero)", re.I)
+
+
+def check_limiting_case(computed: dict | None, text: str = "") -> CheckResult:
     """6. Limiting-case check - large-n behaviour, via research.py's
     existing derive("limit", ...) (sympy), for the solver topics this
-    curriculum can state a clean limit for."""
+    curriculum can state a clean limit for. As with boundary_conditions,
+    the canonical limit is always computed fresh; "pass" additionally
+    requires the derivation to have actually stated that the energy grows
+    without bound as n -> infinity (or its explicit opposite), not merely
+    to have mentioned the word "limit" or the right topic."""
     topic = (computed or {}).get("result", {}).get("topic", "") if computed else ""
     if topic == "harmonic-oscillator":
-        out = R.derive("hbar*w*(n + 1/2)", "limit", wrt="n", to="oo")
-        if out.get("ok"):
-            return CheckResult("limiting_case", "pass",
-                               f"as n -> infinity, E_n -> {out['result']} (unbounded, as expected)")
+        expr = "hbar*w*(n + 1/2)"
+        narrative = "unbounded, as expected"
+    elif topic == "particle-in-a-box":
+        expr = "n**2 * pi**2 * hbar**2 / (2*m*L**2)"
+        narrative = "levels spread without bound"
+    else:
+        return CheckResult("limiting_case", "not_applicable",
+                           f"no curated large-n limit for solver topic {topic!r}")
+    out = R.derive(expr, "limit", wrt="n", to="oo")
+    if not out.get("ok"):
         return CheckResult("limiting_case", "warning", f"limit check errored: {out.get('error')}")
-    if topic == "particle-in-a-box":
-        out = R.derive("n**2 * pi**2 * hbar**2 / (2*m*L**2)", "limit", wrt="n", to="oo")
-        if out.get("ok"):
-            return CheckResult("limiting_case", "pass",
-                               f"as n -> infinity, E_n -> {out['result']} (levels spread without bound)")
-        return CheckResult("limiting_case", "warning", f"limit check errored: {out.get('error')}")
-    return CheckResult("limiting_case", "not_applicable",
-                       f"no curated large-n limit for solver topic {topic!r}")
+    canonical_fact = f"as n -> infinity, E_n -> {out['result']} ({narrative})"
+    claim = _extract_claim_polarity(text, _LIMIT_UNBOUNDED_RE)
+    if claim is None:
+        return CheckResult("limiting_case", "warning",
+                           f"canonical result ({canonical_fact}) computed, but the derivation "
+                           "states no extractable claim about the large-n limit to check it "
+                           "against")
+    if claim == "agrees":
+        return CheckResult("limiting_case", "pass",
+                           f"derivation's large-n claim matches the canonical result "
+                           f"({canonical_fact})")
+    return CheckResult("limiting_case", "fail",
+                       f"derivation's large-n claim contradicts the canonical result "
+                       f"({canonical_fact})")
 
 
-def check_classical_limit(computed: dict | None) -> CheckResult:
+def check_classical_limit(computed: dict | None, text: str = "") -> CheckResult:
     """7. Classical-limit check - hbar -> 0, via the same sympy derive()
     path, for the one result in this curriculum with a clean closed-form
-    hbar-dependence: the harmonic oscillator's zero-point energy."""
+    hbar-dependence: the harmonic oscillator's zero-point energy. Same
+    claim-vs-canonical comparison as the checks above."""
     topic = (computed or {}).get("result", {}).get("topic", "") if computed else ""
-    if topic == "harmonic-oscillator":
-        out = R.derive("hbar*w*(n + 1/2)", "limit", wrt="hbar", to="0")
-        if out.get("ok"):
-            return CheckResult("classical_limit", "pass",
-                               f"as hbar -> 0, E_n -> {out['result']} (recovers the classical "
-                               "result of no minimum energy)")
+    if topic != "harmonic-oscillator":
+        return CheckResult("classical_limit", "not_applicable",
+                           f"no curated classical (hbar->0) limit for solver topic {topic!r}")
+    out = R.derive("hbar*w*(n + 1/2)", "limit", wrt="hbar", to="0")
+    if not out.get("ok"):
         return CheckResult("classical_limit", "warning", f"classical-limit check errored: {out.get('error')}")
-    return CheckResult("classical_limit", "not_applicable",
-                       f"no curated classical (hbar->0) limit for solver topic {topic!r}")
+    canonical_fact = (f"as hbar -> 0, E_n -> {out['result']} (recovers the classical result of "
+                      "no minimum energy)")
+    claim = _extract_claim_polarity(text, _CLASSICAL_LIMIT_RE)
+    if claim is None:
+        return CheckResult("classical_limit", "warning",
+                           f"canonical result ({canonical_fact}) computed, but the derivation "
+                           "states no extractable claim about the classical (hbar->0) limit to "
+                           "check it against")
+    if claim == "agrees":
+        return CheckResult("classical_limit", "pass",
+                           f"derivation's classical-limit claim matches the canonical result "
+                           f"({canonical_fact})")
+    return CheckResult("classical_limit", "fail",
+                       f"derivation's classical-limit claim contradicts the canonical result "
+                       f"({canonical_fact})")
 
 
 _SHM_SYSTEM_RE = re.compile(r"\b(harmonic oscillator|simple harmonic motion)\b", re.I)
 _CONSERVATION_CLAIM_RE = re.compile(r"\bconserv\w*\b|\bconstant of motion\b", re.I)
+_ENERGY_CONSERVED_STATEMENT_RE = re.compile(
+    # a permissive gap (not "is\s+conserved") before "conserv*" so a negation
+    # word sitting between "energy" and "conserved" (e.g. "energy is NOT
+    # conserved") is still found as a candidate claim, not missed entirely.
+    r"(?:total\s+)?energy[^.;\n]{0,40}conserv\w*|dE\s*/\s*dt\s*=\s*0", re.I)
 
 
-def check_conservation_law(pack) -> CheckResult:
+def check_conservation_law(pack, text: str = "") -> CheckResult:
     """8. Conservation-law check - classical/Hamiltonian mechanics energy
     conservation for simple harmonic motion, verified by direct sympy
     differentiation (dE/dt = 0 along the actual equations of motion), not
-    asserted from the textbook statement that it holds.
+    asserted from the textbook statement that it holds. As with the checks
+    above, a "pass" now additionally requires the derivation to have
+    actually claimed energy is (or is not) conserved, not merely to be
+    about a system where conservation happens to hold.
 
     Scoped narrowly on purpose: the word "Hamiltonian" or "Lagrangian"
     appearing anywhere in a question used to be enough to trigger this and
@@ -437,12 +552,25 @@ def check_conservation_law(pack) -> CheckResult:
         E = sp.Rational(1, 2) * m * v**2 + sp.Rational(1, 2) * k * x**2
         E = E.subs(k, m * w**2)  # SHM dispersion relation
         dE_dt = sp.simplify(sp.diff(E, t))
-        if dE_dt == 0:
-            return CheckResult("conservation_law", "pass",
-                               "dE/dt = 0 confirmed for simple harmonic motion (energy conserved)")
-        return CheckResult("conservation_law", "fail", f"dE/dt simplified to {dE_dt}, not 0")
+        canonical_holds = dE_dt == 0
+        canonical_fact = "dE/dt = 0 confirmed for simple harmonic motion (energy conserved)"
     except Exception as exc:
         return CheckResult("conservation_law", "warning", f"conservation check errored: {exc}")
+
+    claim = _extract_claim_polarity(text, _ENERGY_CONSERVED_STATEMENT_RE)
+    if claim is None:
+        return CheckResult("conservation_law", "warning",
+                           f"canonical result ({canonical_fact}) computed, but the derivation "
+                           "states no extractable claim about energy conservation to check it "
+                           "against")
+    agrees_with_canonical = (claim == "agrees") == canonical_holds
+    if agrees_with_canonical:
+        return CheckResult("conservation_law", "pass",
+                           f"derivation's conservation claim matches the canonical result "
+                           f"({canonical_fact})")
+    return CheckResult("conservation_law", "fail",
+                       f"derivation's conservation claim contradicts the canonical result "
+                       f"({canonical_fact})")
 
 
 _NUMBER_RE = re.compile(r"-?\d+\.?\d*(?:[eE][+-]?\d+)?")
@@ -526,15 +654,24 @@ def verify_derivation(question: str, u: dict, pack, reasoning: dict, computed: d
     text = (reasoning or {}).get("derivation_plan") or (reasoning or {}).get("text") or ""
     if not isinstance(text, str):
         text = str(text)  # a malformed upstream reply must degrade, never crash the checks below
+    # The four claim-vs-canonical checks below look for a physical CONCLUSION
+    # ("energy is conserved", "the boundary vanishes") - which is exactly
+    # what the PHYSICAL INTERPRETATION section exists to state, not the
+    # derivation-plan's algebraic steps. Both sections already come from the
+    # same reasoning_engine() call by the time verification runs, so reading
+    # both here is not a new LLM call or a new pipeline stage - only text
+    # already produced was previously left unread for this purpose.
+    interpretation = (reasoning or {}).get("physical_interpretation") or ""
+    claim_text = f"{text}\n{interpretation}" if interpretation else text
     checks = [
         check_symbol_consistency(text, pack),
         check_dimensional_consistency(text, computed),
         check_algebraic_consistency(u, symbolic),
         check_operator_consistency(text, pack),
-        check_boundary_conditions(pack, computed),
-        check_limiting_case(computed),
-        check_classical_limit(computed),
-        check_conservation_law(pack),
+        check_boundary_conditions(pack, computed, claim_text),
+        check_limiting_case(computed, claim_text),
+        check_classical_limit(computed, claim_text),
+        check_conservation_law(pack, claim_text),
         check_known_result(text, computed),
     ]
     result = VerificationResult()

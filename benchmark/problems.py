@@ -894,18 +894,21 @@ PROBLEMS: list[Problem] = [
             "- this yields angular frequency omega = sqrt(k/m)\n\n"
             "PHYSICAL INTERPRETATION\n"
             "- the mass oscillates sinusoidally about equilibrium"),
-        expected_status=("verified_mathematically",),
+        expected_status=("not_independently_verified",),
         expect_topics_matched=True,
         expect_solver_ran=False,
         notes="FINDING (domain-crossing retrieval risk): a CLASSICAL mass-spring question "
              "primary-matches the QUANTUM harmonic-oscillator curriculum topic (shared "
              "vocabulary: 'harmonic oscillator', 'angular frequency') - there is no separate "
              "classical-SHM topic to match instead. No solver exists for classical m/k inputs "
-             "either. It still reaches verified_mathematically via conservation_law, which "
-             "happens to be physically correct here (it independently checks classical SHM "
-             "energy conservation, regardless of which topic triggered it) - a coincidence of "
-             "the check's own content, not a designed guarantee that a quantum-topic match "
-             "will always be classically valid.",
+             "either. UPDATED (release-readiness Phase A): this used to reach "
+             "verified_mathematically via conservation_law regardless of what the derivation "
+             "said - a coincidence of the check's own content, not a designed guarantee, "
+             "flagged as fragile in the finding above. Now that conservation_law requires the "
+             "derivation to actually STATE a conservation claim, and this one only derives the "
+             "equation of motion and omega without ever claiming energy is conserved, it "
+             "honestly lands on not_independently_verified - the coincidental pass is closed, "
+             "not replaced by a new one.",
     ),
     Problem(
         id="solve-energy-conservation-falling-ball", category="problem_solving",

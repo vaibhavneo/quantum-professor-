@@ -53,10 +53,18 @@ def test_infinite_square_well_invalid():
 
 
 def test_harmonic_oscillator():
+    # E_1 - E_0 = HBAR*omega exactly in real arithmetic (E_n = HBAR*omega*(n+1/2)).
+    # The formula itself is correct and untouched; the fix here is the
+    # tolerance. An absolute 1e-40 bound is unreachable for float64 at this
+    # magnitude (~1e-20) - machine epsilon alone (~2.22e-16 relative) puts
+    # the unavoidable rounding error around 1e-36, which the previous bound
+    # was actually failing on, not a physics bug. A tight RELATIVE tolerance
+    # still catches a real formula error (e.g. n+1 instead of n+1/2 would be
+    # ~50% off) while tolerating float64's actual, unavoidable precision.
     omega = 1e14
     e0 = harmonic_oscillator(0, omega)
     e1 = harmonic_oscillator(1, omega)
-    assert abs(e1 - e0 - HBAR * omega) < 1e-40
+    assert math.isclose(e1 - e0, HBAR * omega, rel_tol=1e-9)
 
 
 def test_hydrogen_level_ground():

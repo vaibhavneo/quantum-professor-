@@ -545,6 +545,32 @@ def test_compute_for_harmonic_oscillator_first_excited_state_is_n_1_with_correct
     assert probe["result"]["energy_eV"] == 0.098732
 
 
+# ── release-readiness Phase B: physics.py's qubit/Bloch-sphere solver
+# (qubit_state/apply_gate/bloch_vector/qubit_report) was fully implemented
+# but unreachable - _EXTRACT had no "qubit" entry, so compute_for() always
+# fell through to "ran": False regardless of what the question stated. Now
+# wired via a new _qubit() extractor (tutor.py), reusing the existing
+# solver as-is - no second solver, no new physics.
+
+def test_compute_for_qubit_hadamard_reaches_the_real_bloch_solver():
+    q = ("What is the Bloch sphere vector for a qubit with alpha=0.6 and beta=0.8 after "
+        "applying a Hadamard gate?")
+    probe = qp.compute_for(q, "quantum-information")
+    assert probe["ran"] is True
+    assert probe["inputs"] == {"gate": "H", "alpha": 0.6, "beta": 0.8}
+    # the real, pre-existing solver's own real math - not a placeholder.
+    assert probe["result"]["input_state"]["bloch"] == {"x": 0.96, "y": 0.0, "z": -0.28}
+    assert probe["result"]["output_state"]["P0"] == 0.98
+
+
+def test_compute_for_qubit_returns_none_without_explicit_amplitudes():
+    # "returns None rather than guessing" - the same discipline every other
+    # extractor in this file follows.
+    q = "What is the Bloch sphere representation of a qubit?"
+    probe = qp.compute_for(q, "quantum-information")
+    assert probe["ran"] is False
+
+
 # ── Phase 3: provider-error classification wired into _call() ──────────────
 
 def test_call_wraps_402_as_provider_error():
@@ -1728,7 +1754,8 @@ def test_full_chain_qho_derivation_traces_mathematical_objects_through_to_profes
         "DERIVATION PLAN\n"
         "- start from the quantum harmonic oscillator Hamiltonian [C:harmonic-oscillator]\n"
         "- solving the Schrodinger equation for this potential quantizes the energy\n"
-        "- result: E_n = hbar*omega*(n + 1/2) for n = 0, 1, 2, ...\n\n"
+        "- result: E_n = hbar*omega*(n + 1/2) for n = 0, 1, 2, ...\n"
+        "- the total energy is conserved for this closed system\n\n"
         "PHYSICAL INTERPRETATION\n"
         "- the ground state (n=0) still has nonzero zero-point energy\n"
         "- levels are evenly spaced by hbar*omega, unlike the hydrogen atom's spectrum")

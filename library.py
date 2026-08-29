@@ -37,7 +37,7 @@ BOOKS: Dict[str, Book] = {b.id: b for b in [
         title="The Feynman Lectures on Physics, Vol. III",
         authors="Richard P. Feynman, Robert B. Leighton, Matthew Sands",
         level="basics",
-        topics=["wave-particle-duality", "double-slit", "quantum-behavior", "uncertainty-principle"],
+        topics=["wave-particle-duality", "double-slit", "uncertainty-principle"],
         note="Free online at feynmanlectures.caltech.edu",
         why_read="The best intuition-first introduction to QM ever written. Feynman explains quantum behavior from scratch with zero hand-waving.",
     ),
