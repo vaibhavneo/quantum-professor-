@@ -185,7 +185,18 @@ def _solve_hydrogen(n: int = 1) -> dict:
 
 
 def _solve_hydrogen_transition(n_i: int = 3, n_f: int = 2) -> dict:
-    return hydrogen_transition(n_i, n_f)
+    # hydrogen_transition() itself only returns the physics (n_i/n_f/energy/
+    # wavelength/region/emission) - "topic" and "formula" are wrapper
+    # metadata every OTHER _solve_* function adds, matching _solve_hydrogen
+    # etc. above. Missing here, this used to silently starve three
+    # downstream consumers that all key off computed["result"]["topic"]:
+    # extract_mathematical_objects() never offered a [T1] tag (so a
+    # compliant citation of it was flagged as fabricated), and
+    # verification.py's dimensional_consistency/known_result checks (which
+    # already had a _SOLVER_VALUE_FIELDS["hydrogen-transition"] entry
+    # waiting, unreachable) silently no-opped instead of running.
+    return {**hydrogen_transition(n_i, n_f), "topic": "hydrogen-transition",
+           "formula": "ΔE = -13.606 × (1/n_f² - 1/n_i²) eV"}
 
 
 def _solve_de_broglie(mass_kg: float = M_E, speed_m_s: float = 1e6) -> dict:

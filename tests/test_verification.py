@@ -7,7 +7,7 @@ re-test the LLM call (already covered elsewhere with mocks).
 """
 import physics
 from quantum_prof import verification as v
-from quantum_prof.evidence_pack import EvidencePack
+from quantum_prof.evidence_pack import EvidencePack, extract_mathematical_objects
 from quantum_prof.library import TOPICS
 
 
@@ -540,3 +540,67 @@ def test_verify_derivation_never_reports_verified_when_nothing_actually_passed()
         assert not result.passed, f"no check actually passed for {args!r}, yet result.passed is non-empty"
         assert result.status != "verified_mathematically", \
             f"uncertainty was silently reported as verified for input {args!r}"
+
+
+# ── hydrogen-transition data contract: physics.py's solver result must
+# expose a "formula" field like every other solver does, so
+# extract_mathematical_objects() actually offers [T1] and a compliant
+# citation of it is recognized as legitimate rather than flagged as
+# fabricated. The fix lives entirely in physics.py's solver output - none
+# of these tests special-case hydrogen-transition text in verification.py
+# itself, which still only ever checks "was this tag actually offered".
+
+def _hydrogen_transition_pack(n_i=3, n_f=2):
+    computed = {"ran": True, "inputs": {"n_i": n_i, "n_f": n_f},
+               "result": physics.solve("hydrogen-transition", n_i=n_i, n_f=n_f)}
+    topics = [_topic("bohr-model")]
+    objects = extract_mathematical_objects(topics, computed, None)
+    pack = EvidencePack(question="q", topics=topics, mathematical_objects=objects,
+                        computed=computed)
+    return pack, computed
+
+
+def test_hydrogen_transition_result_now_offers_a_legitimate_t1_object():
+    _, computed = _hydrogen_transition_pack()
+    assert computed["result"]["formula"], "hydrogen-transition must expose a formula like every other solver"
+    objects = extract_mathematical_objects([], computed, None)
+    assert any(o["tag"] == "T1" for o in objects)
+
+
+def test_hydrogen_transition_legitimate_t1_citation_is_not_falsely_failed():
+    # the exact benchmark-confirmed false negative this fix closes:
+    # solve-hydrogen-transition-derive-and-calculate.
+    pack, computed = _hydrogen_transition_pack()
+    reasoning = {"derivation_plan": (
+        "the Rydberg formula gives the transition energy [C:bohr-model]\n"
+        "the solver's computed result [T1] gives the wavelength, referred to in words")}
+    result = v.verify_derivation("hydrogen transition", {}, pack, reasoning, computed, None)
+    assert result.status == "verified_mathematically"
+    assert not result.failed
+    assert any(c["check"] == "symbol_consistency" for c in result.passed)
+
+
+def test_hydrogen_transition_genuinely_fabricated_citation_still_detected():
+    # legitimizing [T1] must not make symbol_consistency toothless - a tag
+    # that names nothing real is still caught.
+    pack, computed = _hydrogen_transition_pack()
+    reasoning = {"derivation_plan": (
+        "the Rydberg formula gives the transition energy [C:bohr-model]\n"
+        "the solver's computed result [T2] gives the wavelength, referred to in words")}
+    result = v.verify_derivation("hydrogen transition", {}, pack, reasoning, computed, None)
+    assert result.status == "failed"
+    assert any(f["check"] == "symbol_consistency" for f in result.failed)
+    assert any("T2" in f["detail"] for f in result.failed)
+
+
+def test_hydrogen_transition_incorrect_mathematics_still_detected():
+    # a legitimate [T1] citation does not exempt the derivation from having
+    # to state the RIGHT number - the real answer for n=3->n=2 is
+    # 656.1123 nm, not 500.
+    pack, computed = _hydrogen_transition_pack()
+    reasoning = {"derivation_plan": (
+        "the Rydberg formula gives the transition energy [C:bohr-model]\n"
+        "the solver's computed result [T1] gives a wavelength of 500 nm")}
+    result = v.verify_derivation("hydrogen transition", {}, pack, reasoning, computed, None)
+    assert result.status != "verified_mathematically"
+    assert any(f["check"] == "known_result" for f in result.failed)

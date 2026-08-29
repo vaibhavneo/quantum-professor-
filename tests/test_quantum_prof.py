@@ -90,6 +90,21 @@ def test_hydrogen_transition_balmer_alpha():
     assert "visible" in result["region"].lower()
 
 
+def test_solve_hydrogen_transition_exposes_topic_and_formula_like_every_other_solver():
+    # every other entry in SOLVERS wraps its result with "topic" and
+    # "formula" - hydrogen-transition used to be the one exception, which
+    # silently starved extract_mathematical_objects() (never offered [T1])
+    # and two already-curated verification.py reference tables
+    # (dimensional_consistency/known_result) that key off result["topic"].
+    result = solve("hydrogen-transition", n_i=3, n_f=2)
+    assert result["topic"] == "hydrogen-transition"
+    assert result["formula"]
+    # the underlying physics (physics_transition()'s own fields) must still
+    # be exactly present and correct - this is additive wrapping, not a
+    # replacement of the real computation.
+    assert result["wavelength_nm"] == hydrogen_transition(3, 2)["wavelength_nm"]
+
+
 def test_de_broglie():
     wl = de_broglie(M_E, 1e6)
     expected = H / (M_E * 1e6)

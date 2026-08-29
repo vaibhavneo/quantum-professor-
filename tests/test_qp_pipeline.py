@@ -458,6 +458,42 @@ def test_compute_for_harmonic_oscillator_ground_state_gives_the_real_zero_point_
     assert probe["result"]["energy_eV"] == 0.032911
 
 
+# ── system-aware ground/excited state, end-to-end through the real solver ──
+# Four systems named explicitly by the correctness-hardening request: two
+# whose ground state is n=1 (must NOT be disturbed by the QHO fix) and the
+# QHO itself at both n=0 (ground) and n=1 (first excited), each checked
+# against the real numerical result, not just the extracted quantum number.
+
+def test_compute_for_particle_in_a_box_ground_state_is_n_1_with_correct_energy():
+    q = ("A particle is in a one-dimensional infinite potential well of width L. Derive "
+        "the energy eigenvalues and calculate the ground-state energy for an electron "
+        "when L = 1 nm.")
+    probe = qp.compute_for(q, "particle-in-a-box")
+    assert probe["ran"] is True
+    assert probe["inputs"]["n"] == 1
+    assert probe["result"]["energy_eV"] == 0.37603
+
+
+def test_compute_for_hydrogen_ground_state_is_n_1_with_correct_energy():
+    q = "What is the ground state energy of a hydrogen atom?"
+    probe = qp.compute_for(q, "hydrogen-atom")
+    assert probe["ran"] is True
+    assert probe["inputs"]["n"] == 1
+    assert probe["result"]["energy_eV"] == -13.605693
+
+
+def test_compute_for_harmonic_oscillator_first_excited_state_is_n_1_with_correct_energy():
+    # the state directly above the ground state must shift by exactly one
+    # quantum number from the QHO's own n=0 ground state (n=1), not from the
+    # n=1-ground-state convention particle-in-a-box/hydrogen use above.
+    q = ("Derive the energy levels of the quantum harmonic oscillator and calculate the "
+        "first excited state energy for omega = 1e14 rad/s.")
+    probe = qp.compute_for(q, "harmonic-oscillator")
+    assert probe["ran"] is True
+    assert probe["inputs"]["n"] == 1
+    assert probe["result"]["energy_eV"] == 0.098732
+
+
 # ── Phase 3: provider-error classification wired into _call() ──────────────
 
 def test_call_wraps_402_as_provider_error():

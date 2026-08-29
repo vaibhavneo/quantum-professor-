@@ -1007,19 +1007,20 @@ PROBLEMS: list[Problem] = [
             "PHYSICAL INTERPRETATION\n"
             "- this transition produces the Balmer-alpha line"),
         is_wrong=False,
-        expected_status=("failed",),
+        expected_status=("verified_mathematically",),
         expect_topics_matched=True,
         expect_solver_ran=True,
-        notes="REAL BUG FOUND (not a benchmark-authoring issue): the solver genuinely runs "
-             "(real n_i=3, n_f=2, wavelength_nm=656.1123) and the derivation cites [T1] exactly "
-             "as the professor's own prompt instructs - but physics.py's hydrogen-transition "
-             "solver result has NO 'formula' field (every other solver's result includes one). "
-             "extract_mathematical_objects() only adds a T1 mathematical object when a formula "
-             "string is present, so [T1] is never actually 'offered' for this solver, and "
-             "symbol_consistency incorrectly flags it as fabricated. This is a genuine "
-             "inconsistency between what the professor is told is citable and what "
-             "verification accepts - worth fixing by adding a formula string to "
-             "physics.py's hydrogen-transition solver result.",
+        notes="FIXED: physics.py's hydrogen-transition solver result now includes 'topic' and "
+             "'formula' fields like every other solver, so extract_mathematical_objects() "
+             "legitimately offers [T1] and the derivation's compliant citation of it is no "
+             "longer flagged as fabricated (symbol_consistency now passes). This was a false "
+             "negative before the fix (a correct derivation reported 'failed'), confirmed by "
+             "dedicated regression tests in tests/test_verification.py that a genuinely "
+             "fabricated citation, and a genuinely wrong stated wavelength, both still get "
+             "caught - the fix closed a real gap without weakening either check. Reaches "
+             "verified_mathematically via symbol_consistency alone (citation-only) - no check "
+             "here re-derives the transition energy from the Rydberg formula itself, only that "
+             "the cited tags are real and that any number the text states matches the solver.",
     ),
     Problem(
         id="solve-expectation-value-position", category="problem_solving",
