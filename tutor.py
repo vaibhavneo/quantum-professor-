@@ -269,7 +269,11 @@ def _score_topics(question: str) -> list:
     for t in TOPICS.values():
         strong, weak = _topic_fields(t)
         strong_hits = q & strong
-        named_outright = t.title.lower() in question.lower()
+        # A bare substring check let "infinite square well" spuriously match
+        # finite-well's title ("finite square well" IS a literal substring
+        # of "inFINITE square well") - word boundaries around the whole
+        # title stop a word fragment from counting as the word itself.
+        named_outright = bool(re.search(rf"\b{re.escape(t.title.lower())}\b", question.lower()))
         if not named_outright and len(strong_hits) < min(2, len(q)):
             continue
         score = sum(_idf(w) for w in strong_hits) * 2.0 + sum(_idf(w) for w in q & weak)

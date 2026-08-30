@@ -65,10 +65,19 @@ def test_C_out_of_curriculum_but_answerable_from_book_evidence(monkeypatch):
     and must NOT say "no curriculum topic covers this" as if that were a
     reason to refuse.
     """
+    # release-readiness follow-up: the retrieved text must genuinely share
+    # real vocabulary with the question - a placeholder string like "t"*250
+    # now correctly fails the no-topic relevance check added to close a
+    # different defect (gibberish/off-topic input getting a confident
+    # book-evidence answer via pure keyword-collision), so this fixture
+    # uses realistic, topically relevant prose instead.
     payload, _ = _run("How do transistors work in silicon wafers?", monkeypatch,
                       retrieve_map={"transistor": [
                           {"tag": "S1", "source": "Modern Particle Physics",
-                           "text": "t" * 250, "raw_score": 0.5}]},
+                           "text": "Transistors are semiconductor devices fabricated on "
+                                  "silicon wafers using photolithography to create the "
+                                  "doped regions that control current flow.",
+                           "raw_score": 0.5}]},
                       provider_status=402)
     assert payload["topics"] == []
     assert payload["answer_mode"] == "offline"
@@ -194,3 +203,101 @@ def test_J_requested_depth_deep_flows_into_understanding_and_quality_gate(monkey
     payload, _ = _run("Explain the Dirac equation in depth, thoroughly.", monkeypatch)
     assert payload["understanding"]["requested_depth"] == "deep"
     assert "satisfied_requested_depth" in payload["quality_gate"]
+
+
+# ── Release-readiness regression tests: the five defects found by the
+# 76-question real-world Professor Quality Evaluation, reproduced and fixed
+# via qp.run() end to end (provider_status=402 forces the real offline path,
+# no real network call) - these prove the fix reaches the actual runtime
+# payload, not just the helper function in isolation. ──────────────────────
+
+def test_defect1_solver_computed_value_appears_in_offline_answer(monkeypatch):
+    payload, _ = _run("What is the ground state energy of a hydrogen atom?", monkeypatch,
+                      provider_status=402)
+    assert payload["answer_mode"] == "offline"
+    assert payload["computed"]["ran"] is True
+    assert payload["computed"]["result"]["energy_eV"] == -13.605693
+    # the exact number the solver computed must be in the user-visible text,
+    # not just the payload - previously it was appended after several
+    # thousand characters of book excerpts, or simply never checked.
+    assert "-13.605693" in payload["prose"]
+    assert "Computed result" in payload["prose"]
+
+
+def test_defect2_infinite_well_numeric_question_routes_to_particle_in_a_box(monkeypatch):
+    payload, _ = _run("What is the energy of an electron in the n=2 state of a "
+                      "1nm-wide infinite square well?", monkeypatch, provider_status=402)
+    assert payload["topics"][0]["id"] == "particle-in-a-box"
+    assert payload["computed"]["solver"] == "particle-in-a-box"
+    assert payload["computed"]["result"]["energy_eV"] == 1.504121
+    assert "1.504121" in payload["prose"]
+
+
+def test_defect3_gibberish_query_gets_honest_insufficient_evidence_no_book_dump(monkeypatch):
+    # a real book passage exists and shares exactly one word ("random")
+    # with the query - the same single-keyword-collision shape confirmed
+    # against the real corpus (gibberish, a joke question, and a book's own
+    # index page all matched on exactly one shared word).
+    payload, _ = _run("asdkjaslkdj random gibberish text 12345", monkeypatch,
+                      retrieve_map={"random": [
+                          {"tag": "S1", "source": "Nonequilibrium Statistical Mechanics",
+                           "text": "the probability that the measurement has a value in "
+                                  "B is given by the distribution function mu.",
+                           "raw_score": 1.05}]},
+                      provider_status=402)
+    assert payload["topics"] == []
+    assert payload["answer_mode"] == "insufficient_evidence"
+    assert "Nonequilibrium Statistical Mechanics" not in payload["prose"]
+    assert "[S1]" not in payload["prose"]
+    assert "no answer is offered" in payload["prose"]
+
+
+def test_defect3_genuinely_relevant_no_topic_evidence_still_shown(monkeypatch):
+    # regression guard: the fix must not suppress real, topically relevant
+    # book evidence just because no curriculum topic exists for it.
+    payload, _ = _run("How do transistors work in silicon wafers?", monkeypatch,
+                      retrieve_map={"transistor": [
+                          {"tag": "S1", "source": "Modern Particle Physics",
+                           "text": "Transistors are semiconductor devices fabricated on "
+                                  "silicon wafers using photolithography to create the "
+                                  "doped regions that control current flow.",
+                           "raw_score": 0.5}]},
+                      provider_status=402)
+    assert payload["topics"] == []
+    assert payload["answer_mode"] == "offline"
+    assert "modern particle physics" in payload["prose"].lower()
+
+
+def test_defect4_direct_relational_question_gets_a_direct_answer(monkeypatch):
+    payload, _ = _run("If we increase the width L of an infinite square well, does the "
+                      "ground-state energy increase or decrease, and why?", monkeypatch,
+                      provider_status=402)
+    assert payload["topics"][0]["id"] == "particle-in-a-box"
+    idx = payload["prose"].find("Direct answer")
+    assert idx != -1
+    assert idx < 50, "the direct answer must lead the response, not be buried in it"
+    assert "it decreases" in payload["prose"]
+
+
+def test_defect5_false_premise_question_is_explicitly_corrected(monkeypatch):
+    payload, _ = _run("Since heavier objects fall faster than lighter ones in a vacuum, "
+                      "calculate how much faster a 10 kg ball falls than a 1 kg ball from "
+                      "the same height.", monkeypatch,
+                      retrieve_map={"vacuum": [
+                          {"tag": "S1", "source": "Physics for Scientists and Engineers",
+                           "text": "In free fall without air resistance, the acceleration "
+                                  "of a falling object in a vacuum is g, independent of "
+                                  "the object's mass, height, or weight.",
+                           "raw_score": 1.0}]},
+                      provider_status=402)
+    prose = payload["prose"]
+    assert "A note on this question's premise" in prose
+    assert "same rate regardless of mass" in prose
+
+
+def test_defect5_normal_question_gets_no_premise_note(monkeypatch):
+    # regression guard: the curated correction table must not fire on
+    # ordinary questions that don't match one of its specific patterns.
+    payload, _ = _run("What is the Heisenberg uncertainty principle?", monkeypatch,
+                      provider_status=402)
+    assert "A note on this question's premise" not in payload["prose"]

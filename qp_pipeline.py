@@ -41,8 +41,8 @@ try:
     from .deterministic_execution import execute_deterministically
     from .tutor import (DEPTH_DIRECTIVE, MODE_DIRECTIVE, MODEL_DEEP, MODEL_FAST,
                         MIN_TOPIC_SCORE, _api_key, _apply_secondary_floor, _familiarity,
-                        _score_topics, compute_for, record_visit, retrieve_evidence,
-                        suggest_related)
+                        _score_topics, _tokens, compute_for, record_visit,
+                        retrieve_evidence, suggest_related)
 except ImportError:
     import research as R
     from evidence_pack import EvidencePack, build_evidence_pack
@@ -53,8 +53,8 @@ except ImportError:
     from deterministic_execution import execute_deterministically
     from tutor import (DEPTH_DIRECTIVE, MODE_DIRECTIVE, MODEL_DEEP, MODEL_FAST,
                        MIN_TOPIC_SCORE, _api_key, _apply_secondary_floor, _familiarity,
-                       _score_topics, compute_for, record_visit, retrieve_evidence,
-                       suggest_related)
+                       _score_topics, _tokens, compute_for, record_visit,
+                       retrieve_evidence, suggest_related)
 
 STAGE_PLAN = {
     "understand": {"intro": (MODEL_FAST, 3000),  "intermediate": (MODEL_FAST, 3000),
@@ -1108,6 +1108,98 @@ def validation(question, prose, book_ev, papers, computed, topics, depth, client
     return out
 
 
+# A direct "increases"/"decreases" fact for the small set of closed-form
+# solver formulas this curriculum already states outright - deliberately NOT
+# a general symbolic-reasoning system (no LaTeX parsing of arbitrary
+# key_equations, no new dependency): just the same monotonic fact a reader
+# could already read off the topic's own equation, keyed by the exact
+# variable a "does X increase or decrease" question names.
+_RELATIONAL_QUESTION_RE = re.compile(
+    r"\b(?:increase|decrease|grow|shrink|rise|fall|go\s+up|go\s+down)\w*\s+or\s+"
+    r"(?:increase|decrease|grow|shrink|rise|fall|go\s+up|go\s+down)\w*", re.I)
+
+_MONOTONIC_DEPENDENCE = {
+    "particle-in-a-box": [
+        (("width", "length", "well", "l"), "decreases",
+         "E_n = n²π²ħ²/(2mL²) has L in the denominator "
+         "squared, so a wider well lowers the confinement energy"),
+        (("quantum number", "state", "n"), "increases",
+         "E_n = n²π²ħ²/(2mL²) grows with n², so a "
+         "higher quantum number means higher energy"),
+    ],
+    "harmonic-oscillator": [
+        (("frequency", "omega"), "increases",
+         "E_n = ħω(n + ½) is directly proportional to ω, so a "
+         "higher angular frequency means higher energy at the same n"),
+        (("quantum number", "state", "n"), "increases",
+         "E_n = ħω(n + ½) increases linearly with n"),
+    ],
+    "hydrogen-atom": [
+        (("quantum number", "state", "n"), "increases",
+         "E_n = -13.6/n² eV is negative and grows less negative (increases) "
+         "as n grows, approaching zero"),
+    ],
+}
+
+
+# A small, curated table of specific, well-known physics misconceptions -
+# NOT a general fact-checker or claim-verification system (that would need
+# real reasoning, i.e. an LLM call). Each entry is a literal, named
+# misconception matched by a narrow pattern; anything not in this table is
+# silently not flagged, exactly like every other curated table in this file
+# (_MODEL_ASSUMPTIONS, _SOLVER_VALUE_FIELDS) only covers what it explicitly
+# names rather than guessing at the rest.
+_KNOWN_FALSE_PREMISES = [
+    (re.compile(r"heavier\s+objects?\s+fall\s+faster", re.I),
+     "in a vacuum, all objects fall at the same rate regardless of mass "
+     "(Galileo's result) - the gravitational force and the inertia it must "
+     "accelerate both scale with mass, so the mass cancels and the "
+     "acceleration is g for anything."),
+    (re.compile(r"uncertainty\s+principle\s+only\s+applies\s+to\s+position\s+and\s+momentum"
+               r"|no\s+similar\s+uncertainty\s+relation\s+for\s+energy", re.I),
+     "there is a real, standard energy-time uncertainty relation, "
+     "ΔE·Δt ≥ ħ/2, alongside the position-momentum one - it is not unique to "
+     "position and momentum."),
+    (re.compile(r"still\s+copy\s+the\s+qubit.?s?\s+state\s+before\s+measuring", re.I),
+     "the no-cloning theorem forbids copying an unknown qubit's state "
+     "outright - this holds independent of whether or when it is measured, "
+     "not because measurement specifically destroys the chance to copy it."),
+    (re.compile(r"quantum\s+computers?\s+can\s+solve\s+np-complete\s+problems?\s+in\s+"
+               r"polynomial\s+time", re.I),
+     "no quantum algorithm is known to solve NP-complete problems in "
+     "polynomial time - Shor's algorithm solves factoring, which is not "
+     "known to be NP-complete, and whether BQP contains NP-complete "
+     "problems at all is a major open question."),
+]
+
+
+def _false_premise_correction(question: str) -> str | None:
+    """A one-line, explicit correction for the small set of specific,
+    named misconceptions in the table above. Returns None (never a guess)
+    for anything not literally matching one of them."""
+    for pattern, correction in _KNOWN_FALSE_PREMISES:
+        if pattern.search(question or ""):
+            return f"**A note on this question's premise**: {correction}"
+    return None
+
+
+def _direct_relational_answer(question: str, topics) -> str | None:
+    """A one-line direct answer when the question explicitly asks whether a
+    named, already-curated quantity increases or decreases, for a topic
+    whose closed-form formula already settles it - returns None (never a
+    guess) for anything not in this small, curated table."""
+    if not topics or not _RELATIONAL_QUESTION_RE.search(question or ""):
+        return None
+    table = _MONOTONIC_DEPENDENCE.get(topics[0].id)
+    if not table:
+        return None
+    q_low = question.lower()
+    for aliases, direction, reason in table:
+        if any(re.search(rf"\b{re.escape(a)}\b", q_low) for a in aliases):
+            return f"**Direct answer**: it {direction} — {reason}."
+    return None
+
+
 # ── the pipeline ──────────────────────────────────────────────────────────
 
 def offline_synthesis(question, u, topics, sides, book_ev, computed,
@@ -1149,14 +1241,26 @@ def offline_synthesis(question, u, topics, sides, book_ev, computed,
             lines.append(f"[{c['tag']}] From *{c['source']}*:\n\n{c['text'][:600]}")
         return "\n\n".join(lines)
 
-    def _side_block(label, side_topics, kept):
+    def _side_block(label, side_topics, kept, computed_line=None, direct_answer=None,
+                    premise_note=None):
         lines = [f"## {label}" if label else "## This question"]
+        if premise_note:
+            lines.append(premise_note)
+        if direct_answer:
+            lines.append(direct_answer)
         side_kept = [c for c in kept if c.get("side") == label] if label else kept
         if side_topics:
             for t in side_topics:
                 lines.append(f"**{t.title}** ({t.level})\n\n{t.intuition}\n\n"
                             f"Key concepts: {', '.join(t.key_concepts)}\n\n"
                             f"Key equations: {' ; '.join(t.key_equations)}")
+            # The specific number this question asked for, right after the
+            # topic write-up and before any book excerpts - previously
+            # appended at the very end of the whole answer, past several
+            # thousand characters of retrieved passages, where a real reader
+            # would very plausibly never reach it.
+            if computed_line:
+                lines.append(computed_line)
         elif side_kept:
             # The 41-topic curriculum is a teaching/navigation layer, not the
             # boundary of what this app knows - real book evidence answers a
@@ -1176,18 +1280,33 @@ def offline_synthesis(question, u, topics, sides, book_ev, computed,
                          "part either - the curriculum summary above is all there is._")
         return "\n\n".join(lines)
 
+    computed_line = None
+    if computed and computed.get("ran"):
+        result = computed["result"]
+        formula = result.get("formula")
+        fields = ", ".join(f"{k} = {v}" for k, v in result.items() if k not in ("topic", "formula"))
+        computed_line = (f"**Computed result** (from {formula}): {fields}" if formula
+                        else f"**Computed result**: {fields}")
+
     kept = book_ev.get("kept", [])
     block_fn = _degraded_block if degraded else _side_block
     if sides:
         for side in sides:
             parts.append(block_fn(side["label"], kept) if degraded
                         else block_fn(side["label"], side["topics"], kept))
+        # A comparison's computed value isn't tied to one specific side -
+        # shown once, after both sides, rather than guessed onto either one.
+        if computed_line:
+            parts.append(computed_line)
     elif not insufficient:
-        parts.append(block_fn(None, kept) if degraded else block_fn(None, topics, kept))
-
-    if computed and computed.get("ran"):
-        parts.append(f"**Computed value** — formula {computed['result'].get('formula','')}, "
-                     f"result: { {k: v for k, v in computed['result'].items() if k != 'formula'} }")
+        if degraded:
+            parts.append(block_fn(None, kept))
+            if computed_line:
+                parts.append(computed_line)
+        else:
+            direct_answer = _direct_relational_answer(question, topics)
+            premise_note = _false_premise_correction(question)
+            parts.append(block_fn(None, topics, kept, computed_line, direct_answer, premise_note))
 
     if pack is not None and not insufficient:
         if pack.conflicting_evidence:
@@ -1202,7 +1321,32 @@ def offline_synthesis(question, u, topics, sides, book_ev, computed,
     return "\n\n".join(parts)
 
 
-def evidence_quality(topics, book_ev, sides) -> str:
+# Confirmed empirically against the real pipeline (not just retrieve_evidence()
+# in isolation - the topic-widened query the pipeline actually runs scores
+# quite differently): raw TF-IDF score does NOT separate genuine relevance
+# from coincidental keyword collision at all - literal gibberish ("asdkjaslkdj
+# random gibberish text 12345") scored 1.05, a joke question scored 1.28, and
+# a real trig-identity question that pulled an unrelated Python code sample
+# scored 4.48, all comfortably above genuinely on-topic no-curriculum-topic
+# hits (general relativity scored 2.69). What DOES separate them cleanly:
+# gibberish/off-topic/index-page hits share exactly ONE distinct word with
+# the question (one rare term driving the whole score - "random", "airspeed",
+# "quantum", "lattice", "theta"); every genuinely on-topic case shared 2 or
+# more. Requiring at least 2 shared words costs nothing for a real topic
+# match (handled separately below) and only applies where there is no
+# curriculum topic to corroborate the hit at all.
+_MIN_NO_TOPIC_WORD_OVERLAP = 2
+
+
+def _shares_enough_vocabulary(question: str, kept: list) -> bool:
+    if not kept:
+        return False
+    qtok = _tokens(question)
+    top_tok = _tokens(kept[0].get("text", "")[:600])
+    return len(qtok & top_tok) >= _MIN_NO_TOPIC_WORD_OVERLAP
+
+
+def evidence_quality(question: str, topics, book_ev, sides) -> str:
     """"usable" | "weak" | "none" - distinguishes a confident OFFLINE answer
     (curriculum coverage, or book evidence strong enough to narrate) from a
     DEGRADED one (something was retrieved, but nowhere near strong enough
@@ -1220,8 +1364,18 @@ def evidence_quality(topics, book_ev, sides) -> str:
             elif s["evidence_strength"] == "weak":
                 best = max(best, 1)
         return "usable" if best == 2 else "weak" if best == 1 else "none"
-    if topics or book_ev.get("evidence_strength") == "usable":
+    if topics:
         return "usable"
+    if book_ev.get("evidence_strength") == "usable":
+        # With no curriculum topic to corroborate it, a "usable" TF-IDF
+        # score alone isn't enough - see _shares_enough_vocabulary's
+        # docstring above for the empirical reasoning. Below that bar,
+        # treat it the same as no usable evidence at all: an honest
+        # "insufficient evidence" is safer than confidently narrating a
+        # coincidental single-keyword hit.
+        if _shares_enough_vocabulary(question, book_ev.get("kept", [])):
+            return "usable"
+        return "none"
     if book_ev.get("evidence_strength") == "weak":
         return "weak"
     return "none"
@@ -1628,7 +1782,7 @@ def run(question: str, mode: str = "explain",
         # gets executed and checked.
         execution = execute_deterministically(question, u, pack, reasoning, computed, symbolic)
         verification = verify_derivation(question, u, pack, reasoning, computed, symbolic)
-        quality = evidence_quality(topics, book_ev, sides)
+        quality = evidence_quality(question, topics, book_ev, sides)
         if quality == "usable":
             prose = offline_synthesis(question, u, topics, sides, book_ev, computed, pack=pack)
             yield "done", _done(prose, "offline", assessment, reasoning, checks,

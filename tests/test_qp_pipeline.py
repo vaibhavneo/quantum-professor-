@@ -1264,22 +1264,22 @@ def test_professor_engine_includes_comparison_hint_when_sides_given():
 # ── Gap closure: a real DEGRADED state, distinct from OFFLINE ──────────────
 
 def test_evidence_quality_usable_when_curriculum_covers_it():
-    assert qp.evidence_quality(qp.match_topics("uncertainty principle"),
+    assert qp.evidence_quality("q", qp.match_topics("uncertainty principle"),
                                {"evidence_strength": "none"}, None) == "usable"
 
 
 def test_evidence_quality_weak_when_only_thin_book_evidence(monkeypatch):
-    assert qp.evidence_quality([], {"evidence_strength": "weak"}, None) == "weak"
+    assert qp.evidence_quality("q", [], {"evidence_strength": "weak"}, None) == "weak"
 
 
 def test_evidence_quality_none_when_nothing_at_all():
-    assert qp.evidence_quality([], {"evidence_strength": "none"}, None) == "none"
+    assert qp.evidence_quality("q", [], {"evidence_strength": "none"}, None) == "none"
 
 
 def test_evidence_quality_comparison_takes_the_best_side():
     sides = [{"covered_by_curriculum": False, "evidence_strength": "weak"},
              {"covered_by_curriculum": True, "evidence_strength": "usable"}]
-    assert qp.evidence_quality([], {}, sides) == "usable"
+    assert qp.evidence_quality("q", [], {}, sides) == "usable"
 
 
 def test_offline_synthesis_degraded_shows_only_raw_evidence_no_curriculum_framing():
