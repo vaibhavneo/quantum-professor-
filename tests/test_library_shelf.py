@@ -93,3 +93,39 @@ class TestAuthorsAreNames(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProblemIdsHaveOneSourceOfTruth(unittest.TestCase):
+    """Topic.problem_ids was a second copy of a relationship the problem bank
+    already owns, and the two had drifted completely apart: all 14 topics that
+    declared ids declared ones resolving to nothing ("duality-p1" against a
+    bank holding "wpd-1"). Nothing broke only because problems_for_topic()
+    matches on Problem.topic_id instead - so the API shipped ids pointing
+    nowhere, and problem() would raise on any of them.
+    """
+
+    def test_every_serialized_problem_id_resolves(self):
+        from problems import PROBLEMS
+        from serialize import topic_to_dict
+        bad = [(t.id, i) for t in TOPICS.values()
+               for i in topic_to_dict(t)["problem_ids"] if i not in PROBLEMS]
+        self.assertEqual(bad, [])
+
+    def test_the_serialized_ids_match_the_bank_exactly(self):
+        from problems import problems_for_topic
+        from serialize import topic_to_dict
+        for t in TOPICS.values():
+            with self.subTest(topic=t.id):
+                self.assertEqual(topic_to_dict(t)["problem_ids"],
+                                 [p.id for p in problems_for_topic(t.id)])
+
+    def test_topics_with_problems_actually_report_them(self):
+        from serialize import topic_to_dict
+        n = sum(1 for t in TOPICS.values() if topic_to_dict(t)["problem_ids"])
+        self.assertGreater(n, 0)
+
+    def test_no_second_hand_maintained_copy_remains(self):
+        """A non-empty literal here is a second source of truth reappearing."""
+        import re
+        src = (Path(__file__).resolve().parents[1] / "library.py").read_text()
+        self.assertEqual(re.findall(r'problem_ids=\["', src), [])

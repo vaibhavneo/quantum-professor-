@@ -666,7 +666,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         key_equations=[r"E = h\nu", r"\lambda = h/p"],
         intuition="Light is neither a pure wave nor a pure particle — it is something new that shows wave behavior in some experiments and particle behavior in others. The question 'which is it?' is the wrong question.",
         book_refs=["feynman-vol3", "griffiths"],
-        problem_ids=["duality-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="photoelectric-effect",
@@ -677,7 +677,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         key_equations=[r"E_{\text{photon}} = h\nu", r"KE_{\max} = h\nu - \phi"],
         intuition="Shining light on metal ejects electrons only if the frequency is high enough — not the intensity. Einstein realized light must come in discrete packets (photons) each with energy hν.",
         book_refs=["feynman-vol3", "griffiths"],
-        problem_ids=["photo-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="de-broglie",
@@ -688,7 +688,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         key_equations=[r"\lambda = \frac{h}{p}", r"k = \frac{p}{\hbar} = \frac{2\pi}{\lambda}"],
         intuition="Just as Einstein showed light has momentum p = E/c = h/λ, de Broglie reversed it: particles with momentum p have an associated wavelength λ = h/p. Electrons really do diffract like waves.",
         book_refs=["feynman-vol3", "griffiths", "zettili"],
-        problem_ids=["debroglie-p1", "debroglie-p2"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="double-slit",
@@ -721,7 +721,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         key_equations=[r"E_n = -\frac{13.6\,\text{eV}}{n^2}", r"\frac{1}{\lambda} = R_\infty\!\left(\frac{1}{n_f^2} - \frac{1}{n_i^2}\right)"],
         intuition="Bohr postulated that electrons only occupy orbits where their de Broglie wave fits exactly around the circle. This explains hydrogen's spectral lines but fails for multi-electron atoms.",
         book_refs=["griffiths", "zettili", "feynman-vol3"],
-        problem_ids=["bohr-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="uncertainty-principle",
@@ -732,7 +732,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         key_equations=[r"\Delta x \,\Delta p \geq \frac{\hbar}{2}", r"\Delta E \,\Delta t \geq \frac{\hbar}{2}"],
         intuition="To know where a particle is precisely, you need a narrow wave packet — but a narrow packet requires many wavelengths, meaning many momenta. Localizing position unavoidably spreads momentum. This is geometry, not ignorance.",
         book_refs=["feynman-vol3", "griffiths", "shankar"],
-        problem_ids=["uncertainty-p1", "uncertainty-p2"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="wavefunction-born-rule",
@@ -771,7 +771,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         ],
         intuition="Confine a particle between two walls. Only standing-wave solutions fit — exactly like a guitar string. The energy is quantized as n², and even the ground state (n=1) has non-zero energy: the zero-point energy.",
         book_refs=["griffiths", "shankar", "zettili", "feynman-vol3"],
-        problem_ids=["box-p1", "box-p2"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     # ─── INTERMEDIATE ─────────────────────────────────────────────────────────
     Topic(
@@ -785,7 +785,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         ],
         intuition="Classically, a ball with less energy than a hill cannot cross. Quantum mechanically, the wavefunction decays exponentially inside the barrier but doesn't vanish — there's a non-zero probability of appearing on the other side. Tunnel diodes and nuclear fusion rely on this.",
         book_refs=["griffiths", "shankar", "zettili"],
-        problem_ids=["tunnel-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="finite-well",
@@ -810,7 +810,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         ],
         intuition="The harmonic oscillator is the most important quantum system — it appears in every quantum field theory. Remarkably, the algebra of raising/lowering operators solves it without ever writing down the wavefunction.",
         book_refs=["griffiths", "shankar", "sakurai", "cohen-tannoudji"],
-        problem_ids=["ho-p1", "ho-p2"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="operators-observables",
@@ -821,7 +821,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         key_equations=[r"\langle A \rangle = \langle\psi|\hat{A}|\psi\rangle", r"\hat{A}|\phi_n\rangle = a_n|\phi_n\rangle"],
         intuition="In QM every measurable quantity is represented by a Hermitian operator. Measuring it gives one of its eigenvalues, and the state 'collapses' to the corresponding eigenstate. The expectation value is the average over many measurements.",
         book_refs=["griffiths", "shankar", "dirac", "sakurai"],
-        problem_ids=["op-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="commutators",
@@ -832,7 +832,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         key_equations=[r"[\hat{x},\hat{p}] = i\hbar", r"\Delta A\,\Delta B \geq \tfrac{1}{2}|{\langle[\hat{A},\hat{B}]\rangle}|"],
         intuition="Two operators commute iff they can be simultaneously measured precisely. Position and momentum famously do NOT commute — this is the algebraic root of the uncertainty principle, not just a measurement disturbance story.",
         book_refs=["griffiths", "shankar", "sakurai"],
-        problem_ids=["comm-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="ehrenfest-correspondence-principle",
@@ -890,7 +890,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         ],
         intuition="Solving Schrödinger's equation for the Coulomb potential gives the exact hydrogen spectrum — a triumph of QM. Three quantum numbers (n, l, m) emerge naturally from the boundary conditions in 3D.",
         book_refs=["griffiths", "shankar", "cohen-tannoudji", "zettili"],
-        problem_ids=["hydrogen-p1", "hydrogen-p2"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     # ─── ADVANCED ─────────────────────────────────────────────────────────────
     Topic(
@@ -905,7 +905,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         ],
         intuition="Electrons have an intrinsic angular momentum called spin that has no classical analogue. A spin-½ particle in a magnetic field can only be 'up' or 'down'. Pauli matrices encode the algebra of spin and underpin all of quantum information.",
         book_refs=["sakurai", "townsend", "griffiths", "cohen-tannoudji"],
-        problem_ids=["spin-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="angular-momentum-addition",
@@ -930,7 +930,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         ],
         intuition="Most quantum systems can't be solved exactly. If H = H₀ + λH' with λ small, we can expand in powers of λ. First-order corrections involve only the expectation value of the perturbation in the unperturbed state.",
         book_refs=["griffiths", "shankar", "sakurai", "cohen-tannoudji"],
-        problem_ids=["pt-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="time-dependent-perturbation",
@@ -1052,7 +1052,7 @@ TOPICS: Dict[str, Topic] = {t.id: t for t in [
         ],
         intuition="A qubit is a quantum two-level system. Unlike a classical bit, it can be in a superposition. Entangled qubits exhibit correlations with no classical explanation. Quantum algorithms exploit interference to solve problems faster than any classical computer.",
         book_refs=["nielsen-chuang"],
-        problem_ids=["qinfo-p1"],
+        problem_ids=[],  # derived from problems.py at serialization,
     ),
     Topic(
         id="decoherence",
