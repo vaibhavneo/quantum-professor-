@@ -27,7 +27,15 @@ def book_to_dict(book: "Book") -> dict:
     return {
         "id": book.id,
         "title": book.title,
-        "authors": list(book.authors),
+        # SPLIT ON THE SEPARATOR, not into characters.
+        #
+        # `Book.authors` is a str (library.py). list() on a str splats it into
+        # single characters, so the API returned
+        #     ["D","a","v","i","d"," ","J",".", ...]
+        # and web/app.js renders `authors.join(", ")`, putting
+        # "D, a, v, i, d,  , J, ." on every book card. All 13 books, and now
+        # all 64.
+        "authors": [a.strip() for a in book.authors.split(",") if a.strip()],
         "level": book.level,
         "topics": list(book.topics),
         "note": book.note,
