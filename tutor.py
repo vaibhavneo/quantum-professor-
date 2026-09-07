@@ -127,11 +127,32 @@ def retrieve_evidence(question: str, top_k: int = 6) -> dict:
     """
     if str(BRAIN_ROOT) not in sys.path:
         sys.path.insert(0, str(BRAIN_ROOT))
+    # THE GATEWAY IS A LOCAL-MACHINE LUXURY.
+    #
+    # BRAIN_ROOT points at a sibling workspace on the author's Mac. In the
+    # deployed container it does not exist, so this used to return
+    # available:False and every answer was ungrounded - silently, because
+    # degrading is the correct behaviour and nothing errored. The 64-book
+    # shelf was recommending texts the app could not quote.
+    #
+    # local_corpus is the same retrieval over a corpus bundle committed to the
+    # repo: same query construction, same BM25 ordering, same score sign, so
+    # the two paths rank alike rather than giving one question two answers.
+    quotas = CORPUS_QUOTA
     try:
         from second_brain.gateway import retrieve
-    except Exception as exc:                     # gateway absent → degrade, don't crash
-        return {"available": False, "reason": f"{type(exc).__name__}: {exc}",
-                "kept": [], "rejected": [], "scope": PHYSICS_CORPORA}
+    except Exception as exc:
+        import local_corpus
+        if not local_corpus.available():
+            return {"available": False,
+                    "reason": f"{type(exc).__name__}: {exc}; "
+                              f"and no bundled corpus",
+                    "kept": [], "rejected": [], "scope": PHYSICS_CORPORA}
+        retrieve = local_corpus.retrieve
+        # One bundled corpus, so the per-corpus split does not apply; give it
+        # the whole budget rather than a share of a quota it is not competing
+        # for.
+        quotas = {local_corpus.CORPUS_ID: sum(CORPUS_QUOTA.values())}
 
     # Query each corpus on its own quota instead of letting them compete for
     # one pool. The physics shelf (120 books: quantum mechanics, applied
@@ -140,7 +161,7 @@ def retrieve_evidence(question: str, top_k: int = 6) -> dict:
     # that supplements it. Pooled, its Q# code listings and pop-science intros
     # outranked real physics on the strength of shared vocabulary.
     hits, res = [], {}
-    for corpus, quota in CORPUS_QUOTA.items():
+    for corpus, quota in quotas.items():
         try:
             r = retrieve(question, corpora=[corpus], top_k=quota)
         except Exception as exc:
