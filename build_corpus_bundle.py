@@ -74,6 +74,47 @@ def _wanted(source: str) -> bool:
     return not any(x.lower() in source.lower() for x in EXCLUDE)
 
 
+def _shelf_levels(sources) -> dict:
+    """Map each corpus filename to the curated level of its shelf entry.
+
+    The shelf already records whether a book is basics / intermediate /
+    advanced. Retrieval could not use that because the corpus keys on a
+    filename ("Quantum Mechanics. Concepts and Applications (Nouredine
+    Zettili) (z-library...).pdf") and the shelf keys on a title. This is the
+    join, computed once at build time and shipped, so nothing pays for fuzzy
+    matching at query time.
+
+    Measured: 58 of 60 corpus files match a shelf entry. The two that do not
+    are the non-quantum titles deliberately kept off the shelf, so an unmapped
+    file is a signal rather than a failure - it gets no level and no
+    adjustment.
+    """
+    import difflib
+    import re as _re
+    try:
+        from .library import BOOKS
+    except ImportError:
+        from library import BOOKS
+
+    def norm(text: str) -> str:
+        text = text.lower()
+        text = _re.sub(r"\(z-library.*|\(1lib.*|\.pdf$", " ", text)
+        return _re.sub(r"[^a-z0-9 ]", " ", text)
+
+    shelf = {b.id: (norm(f"{b.title} {b.authors}"), b.level) for b in BOOKS.values()}
+    out = {}
+    for name in sources:
+        n = norm(name)
+        best, score = None, 0.0
+        for bid, (text, _lvl) in shelf.items():
+            r = difflib.SequenceMatcher(None, n, text).ratio()
+            if r > score:
+                best, score = bid, r
+        if score >= 0.60:
+            out[name] = shelf[best][1]
+    return out
+
+
 def build() -> dict:
     if not SOURCE.exists():
         raise SystemExit(
@@ -86,18 +127,20 @@ def build() -> dict:
                for c in chunks
                if any(d in str(c.get("source", "")) for d in KEEP_DIRS)
                and not _wanted(str(c.get("source", "")))}
+    books = {os.path.basename(str(c["source"])) for c in kept}
+    levels = _shelf_levels(books)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(OUT, "wt", encoding="utf-8") as f:
-        json.dump({"chunks": kept}, f, ensure_ascii=False)
-    books = {os.path.basename(str(c["source"])) for c in kept}
+        json.dump({"chunks": kept, "levels": levels}, f, ensure_ascii=False)
     return {"chunks": len(kept), "books": len(books),
+            "levelled": len(levels),
             "mb": round(OUT.stat().st_size / 1e6, 1),
             "excluded_files": sorted(dropped)}
 
 
 if __name__ == "__main__":
     r = build()
-    print(f"{OUT.name}: {r['chunks']:,} chunks from {r['books']} books, "
-          f"{r['mb']} MB")
+    print(f"{OUT.name}: {r['chunks']:,} chunks from {r['books']} books "
+          f"({r['levelled']} with a curated level), {r['mb']} MB")
     for f in r["excluded_files"]:
         print(f"  excluded: {f[:74]}")

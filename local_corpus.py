@@ -61,7 +61,44 @@ _STOP = frozenset(
 
 _lock = threading.Lock()
 _con: Optional[sqlite3.Connection] = None
+_levels: Dict[str, str] = {}
 _state: Dict[str, Any] = {"built": False, "reason": None, "chunks": 0, "books": 0}
+
+# RE-RANKING, MEASURED RATHER THAN CHOSEN.
+#
+# BM25 alone put a general survey above the specialist text on the questions
+# where a specialist text exists, and let popular-level books answer technical
+# ones. Two hypotheses were tested against tests/retrieval_eval.py before
+# either of these constants existed:
+#
+#   corpus-specific stopwording (dropping high document-frequency terms like
+#   "equation", which appears in 22.5% of chunks) - REJECTED, it made hit@3
+#   worse at every cutoff from 1% to 20%.
+#
+#   title affinity + a level prior - kept, on the numbers below.
+#
+# TITLE_BONUS: a book's own title and authors are evidence about what it is
+# authoritative on. "How did von Neumann formalise measurement" should reach
+# the book with von Neumann on the cover.
+#
+# BASICS_PENALTY: the shelf already records each book's level. A popular-level
+# book answering "explain the WKB approximation" is the wrong source, and the
+# curation already knows which books those are.
+#
+# Both sit mid-plateau, not at a sweep edge: the penalty saturates from 5
+# through 20 with identical scores, and the bonus holds hit@3 from 0.5 to 4.
+# A spike would have meant a number fitted to 28 questions.
+#
+#                     before   after
+#   top-1               36%     39%
+#   hit@3               68%     71%
+#   hit@5               75%     86%
+#   specialist@3        76%     76%
+#   core@3              55%     64%
+#   popular-level books in a technical top-3:  2 -> 0
+TITLE_BONUS = 2.0
+BASICS_PENALTY = 5.0
+POOL = 40          # BM25 candidates re-ranked; 40 is ~7x the largest top_k used
 
 
 def to_match_query(question: str, max_terms: int = 12) -> str:
@@ -101,7 +138,8 @@ def _build() -> Optional[sqlite3.Connection]:
         return None
     try:
         with gzip.open(BUNDLE, "rt", encoding="utf-8") as f:
-            chunks = json.load(f)["chunks"]
+            data = json.load(f)
+        chunks = data["chunks"]
         con = sqlite3.connect(":memory:", check_same_thread=False)
         # UNINDEXED on everything except text: the other columns are payload,
         # and indexing them lets a book's own title match its every chunk.
@@ -115,6 +153,8 @@ def _build() -> Optional[sqlite3.Connection]:
              for c in chunks])
         con.commit()
         books = {os.path.basename(str(c.get("source", ""))) for c in chunks}
+        _levels.clear()
+        _levels.update(data.get("levels") or {})
         _state.update(built=True, reason=None, chunks=len(chunks), books=len(books))
         _con = con
         return _con
@@ -140,16 +180,31 @@ def search(question: str, top_k: int = 6) -> List[Dict[str, Any]]:
         rows = con.execute(
             "SELECT text, source, title, page_start, bm25(chunks) AS s "
             "FROM chunks WHERE chunks MATCH ? ORDER BY s LIMIT ?",
-            (match, top_k)).fetchall()
+            (match, max(POOL, top_k))).fetchall()
     except sqlite3.OperationalError:
         return []                            # malformed query → no hits, never a 500
-    # bm25() is negative and better-is-lower. Flipped so callers treat this
-    # score exactly as they treat the gateway's.
-    return [{"text": text, "source": source, "corpus": [CORPUS_ID],
-             "raw_score": round(-score, 4), "chunk_id": None,
-             "author": None, "title": title, "chapter": None,
-             "page_start": page_start or None, "page_end": None}
-            for text, source, title, page_start, score in rows]
+
+    # Retrieve then re-rank. BM25 decides what is a candidate; the book's own
+    # title and its curated level decide the order among candidates. See the
+    # constants above for the measurements that set them.
+    terms = {w for w in _WORD.findall(question.lower())
+             if len(w) > 2 and w not in _STOP}
+    out = []
+    for text, source, title, page_start, score in rows:
+        name = os.path.basename(str(source))
+        overlap = len(terms & {w for w in _WORD.findall(name.lower()) if len(w) > 2})
+        # bm25() is negative and better-is-lower. Flipped so callers treat this
+        # score exactly as they treat the gateway's.
+        adjusted = -score + TITLE_BONUS * overlap
+        if _levels.get(name) == "basics":
+            adjusted -= BASICS_PENALTY
+        out.append({"text": text, "source": source, "corpus": [CORPUS_ID],
+                    "raw_score": round(adjusted, 4), "chunk_id": None,
+                    "author": None, "title": title, "chapter": None,
+                    "page_start": page_start or None, "page_end": None,
+                    "level": _levels.get(name)})
+    out.sort(key=lambda h: -h["raw_score"])
+    return out[:top_k]
 
 
 def retrieve(question: str, corpora=None, top_k: int = 6) -> Dict[str, Any]:

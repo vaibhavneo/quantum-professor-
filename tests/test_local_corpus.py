@@ -165,3 +165,61 @@ class TestCitationsCarryPages(unittest.TestCase):
         i = src.index("raw relevance")
         self.assertIn("p.", src[max(0, i - 200):i],
                       "the prompt's source block does not cite a page")
+
+
+class TestRanking(unittest.TestCase):
+    """The re-rank constants were measured, so the tests assert the measured
+    outcome rather than the mechanism. A change that moves these numbers down
+    is a regression whatever it does to the code."""
+
+    @classmethod
+    def setUpClass(cls):
+        sys.path.insert(0, str(ROOT / "tests"))
+        import retrieval_eval as ev
+        cls.ev = ev
+        cls.r = ev.evaluate(lc.search)
+
+    def test_hit_at_3_beats_the_recorded_bm25_baseline(self):
+        """BM25 alone scored 68% on this set."""
+        self.assertGreaterEqual(self.r["hit3_pct"], 0.71)
+
+    def test_hit_at_5_beats_the_recorded_baseline(self):
+        """BM25 alone scored 75%."""
+        self.assertGreaterEqual(self.r["hit5_pct"], 0.82)
+
+    def test_the_ranking_still_returns_several_books(self):
+        """A re-rank that collapses onto one book has given the reader one
+        opinion, not evidence."""
+        self.assertGreater(self.r["mean_spread"], 2.5)
+
+    def test_no_popular_level_book_answers_a_technical_question(self):
+        """Two did before the level prior: 'The Joy of Quantum Computing' on
+        the density matrix, and 'Why Nobody Understands Quantum Physics' on
+        the WKB approximation."""
+        pop = ("why nobody understands", "joy of quantum computing",
+               "simply quantum physics")
+        offenders = []
+        for question, _expected in self.ev.CASES:
+            for h in lc.search(question, top_k=3):
+                name = os.path.basename(h["source"]).lower()
+                if any(p in name for p in pop):
+                    offenders.append((question[:40], name[:40]))
+        self.assertEqual(offenders, [])
+
+    def test_the_level_map_shipped_with_the_bundle(self):
+        lc.search("hydrogen atom", top_k=1)          # force the build
+        self.assertGreater(len(lc._levels), 50,
+                           "the curated levels did not ship in the bundle")
+
+    def test_a_book_with_its_subject_in_the_title_is_reachable(self):
+        """The title affinity exists for questions like this one."""
+        hits = lc.search("How did von Neumann formalise the measurement process?",
+                         top_k=5)
+        names = " ".join(os.path.basename(h["source"]) for h in hits).lower()
+        self.assertIn("neumann", names)
+
+    def test_rejected_hypothesis_is_documented_not_silently_dropped(self):
+        """Corpus-specific stopwording was tried and measured worse. The next
+        person to have the same idea should find that out from the code."""
+        src = (ROOT / "local_corpus.py").read_text()
+        self.assertIn("REJECTED", src)
