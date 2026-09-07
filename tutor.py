@@ -180,6 +180,15 @@ def retrieve_evidence(question: str, top_k: int = 6) -> dict:
             "corpus": h.get("corpus"),
             "raw_score": round(float(h.get("raw_score", 0.0)), 4),
             "normalised": round(float(h.get("confidence", 0.0)), 3),
+            # PAGE NUMBERS, WHERE THE CORPUS HAS THEM.
+            #
+            # The desk-physics re-ingest added page_start/page_end to 164,219
+            # of 165,423 chunks, where previously none carried them. Dropping
+            # them here meant a citation could name the book but never the
+            # page - the difference between "Haroche says so" and a claim the
+            # reader can go and check.
+            "page": h.get("page_start") or None,
+            "title": h.get("title") or None,
         })
     # Rank by raw score — the gateway's ordering already does this, but making
     # it explicit means the tags we hand the model match what we display.
@@ -595,7 +604,9 @@ def _familiarity(state: dict) -> str:
 def _compose(question, topic, evidence, computed, mode, depth, client, mastery=None,
              token_override=None):
     src_block = "\n\n".join(
-        f"[{c['tag']}] (from {c['source']}, raw relevance {c['raw_score']})\n{c['text'][:1100]}"
+        f"[{c['tag']}] (from {c['source']}"
+        + (f", p.{c['page']}" if c.get("page") else "")
+        + f", raw relevance {c['raw_score']})\n{c['text'][:1100]}"
         for c in evidence["kept"]
     ) or "(no usable sources retrieved)"
     if evidence.get("evidence_strength") == "weak":

@@ -132,3 +132,36 @@ class TestTheTutorFallsBackToIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCitationsCarryPages(unittest.TestCase):
+    """The re-ingest put page numbers on 164,219 of 165,423 chunks where none
+    existed before. tutor.py was dropping them when it normalised hits, so a
+    citation could name the book but never the page - the difference between
+    "Haroche says so" and a claim the reader can go and check."""
+
+    def test_the_tutor_keeps_the_page_on_each_hit(self):
+        code = (
+            "import builtins,sys; sys.path.insert(0,%r)\n"
+            "_r=builtins.__import__\n"
+            "def b(n,*a,**k):\n"
+            "    if n.startswith('second_brain'):\n"
+            "        raise ModuleNotFoundError('no gateway')\n"
+            "    return _r(n,*a,**k)\n"
+            "builtins.__import__=b\n"
+            "import tutor\n"
+            "r=tutor.retrieve_evidence('decoherence of a cavity superposition')\n"
+            "print(sum(1 for h in r['kept'] if h.get('page')), len(r['kept']))\n"
+        ) % str(ROOT)
+        out = subprocess.run([sys.executable, "-c", code], cwd=ROOT,
+                             capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr[-400:])
+        withpage, total = map(int, out.stdout.strip().splitlines()[-1].split())
+        self.assertGreater(total, 0)
+        self.assertGreater(withpage, 0, "no hit carried a page number")
+
+    def test_the_source_block_shown_to_the_model_names_the_page(self):
+        src = (ROOT / "tutor.py").read_text()
+        i = src.index("raw relevance")
+        self.assertIn("p.", src[max(0, i - 200):i],
+                      "the prompt's source block does not cite a page")
